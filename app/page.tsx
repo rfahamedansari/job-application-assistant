@@ -312,13 +312,19 @@ export default function Home() {
   Recruiters
 </Link>
 
-              <span className="block cursor-not-allowed rounded-lg px-4 py-3 text-slate-600">
-                Interview Prep
-              </span>
+              <Link
+  href="/interview-prep"
+  className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
+>
+  Interview Prep
+</Link>
 
-              <span className="block cursor-not-allowed rounded-lg px-4 py-3 text-slate-600">
-                Analytics
-              </span>
+             <Link
+  href="/analytics"
+  className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
+>
+  Analytics
+</Link>
 
             </nav>
           </aside>
