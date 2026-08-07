@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
@@ -10,23 +11,34 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<
+    "success" | "error"
+  >("error");
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  async function handleLogin(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
+
     setMessage("");
     setIsLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
     setIsLoading(false);
 
     if (error) {
       setMessage("Incorrect email or password.");
+      setMessageType("error");
       return;
     }
 
@@ -34,10 +46,51 @@ export default function LoginPage() {
     router.refresh();
   }
 
+  async function handleForgotPassword() {
+    setMessage("");
+
+    if (!email.trim()) {
+      setMessage(
+        "Enter your email address first, then click Forgot password."
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setIsResetting(true);
+
+    const redirectUrl =
+      `${window.location.origin}/update-password`;
+
+    const { error } =
+      await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        {
+          redirectTo: redirectUrl,
+        }
+      );
+
+    setIsResetting(false);
+
+    if (error) {
+      setMessage(
+        `Password recovery email could not be sent: ${error.message}`
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setMessage(
+      "Password recovery email sent. Please check your inbox."
+    );
+    setMessageType("success");
+  }
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-12 text-slate-100">
-      <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-        <div className="mb-8 text-center">
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+      <section className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900 p-8">
+
+        <div className="mb-7 text-center">
           <p className="text-sm font-medium text-cyan-400">
             Ahamed AI Career OS
           </p>
@@ -47,17 +100,27 @@ export default function LoginPage() {
           </h1>
 
           <p className="mt-2 text-sm text-slate-400">
-            Sign in to view jobs, resumes, applications and recruiter follow-ups.
+            Sign in to view jobs, resumes, applications and
+            recruiter follow-ups.
           </p>
         </div>
 
         {message && (
-          <div className="mb-5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <div
+            className={`mb-5 rounded-lg border px-4 py-3 text-sm ${
+              messageType === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                : "border-red-500/30 bg-red-500/10 text-red-200"
+            }`}
+          >
             {message}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        <form
+          onSubmit={handleLogin}
+          className="space-y-5"
+        >
           <div>
             <label
               htmlFor="email"
@@ -70,7 +133,9 @@ export default function LoginPage() {
               id="email"
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               placeholder="you@example.com"
               autoComplete="email"
               required
@@ -79,18 +144,33 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label
-              htmlFor="password"
-              className="mb-2 block text-sm font-medium"
-            >
-              Password
-            </label>
+            <div className="mb-2 flex items-center justify-between">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium"
+              >
+                Password
+              </label>
+
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={isResetting}
+                className="text-sm font-medium text-cyan-400 hover:text-cyan-300 disabled:opacity-60"
+              >
+                {isResetting
+                  ? "Sending..."
+                  : "Forgot password?"}
+              </button>
+            </div>
 
             <input
               id="password"
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
               placeholder="Enter your password"
               autoComplete="current-password"
               required
@@ -116,6 +196,7 @@ export default function LoginPage() {
             Create account
           </Link>
         </p>
+
       </section>
     </main>
   );

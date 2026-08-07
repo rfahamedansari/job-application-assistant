@@ -305,9 +305,12 @@ export default function Home() {
                 Profile & Preferences
               </Link>
 
-              <span className="block cursor-not-allowed rounded-lg px-4 py-3 text-slate-600">
-                Recruiters
-              </span>
+              <Link
+  href="/recruiters"
+  className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
+>
+  Recruiters
+</Link>
 
               <span className="block cursor-not-allowed rounded-lg px-4 py-3 text-slate-600">
                 Interview Prep
