@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import mammoth from "mammoth";
-import { PDFExtract } from "pdf.js-extract";
 
 type ParseResumeRequest = {
   resume_id?: string;
@@ -16,9 +15,7 @@ export async function POST(request: NextRequest) {
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        {
-          error: "Supabase environment variables are missing.",
-        },
+        { error: "Supabase environment variables are missing." },
         { status: 500 }
       );
     }
@@ -27,9 +24,7 @@ export async function POST(request: NextRequest) {
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        {
-          error: "Missing authentication token.",
-        },
+        { error: "Missing authentication token." },
         { status: 401 }
       );
     }
@@ -53,9 +48,7 @@ export async function POST(request: NextRequest) {
 
     if (userError || !user) {
       return NextResponse.json(
-        {
-          error: "Invalid or expired session.",
-        },
+        { error: "Invalid or expired session." },
         { status: 401 }
       );
     }
@@ -65,9 +58,7 @@ export async function POST(request: NextRequest) {
 
     if (!resumeId) {
       return NextResponse.json(
-        {
-          error: "resume_id is required.",
-        },
+        { error: "resume_id is required." },
         { status: 400 }
       );
     }
@@ -98,9 +89,7 @@ export async function POST(request: NextRequest) {
 
     if (!resume.file_path) {
       return NextResponse.json(
-        {
-          error: "Resume does not have a stored file.",
-        },
+        { error: "Resume does not have a stored file." },
         { status: 400 }
       );
     }
@@ -148,55 +137,21 @@ export async function POST(request: NextRequest) {
 
     let extractedText = "";
 
-    // DOCX
     if (fileName.endsWith(".docx")) {
       const result = await mammoth.extractRawText({
         buffer,
       });
 
       extractedText = result.value;
-    }
-
-    // PDF
-    else if (fileName.endsWith(".pdf")) {
-      const pdfExtract = new PDFExtract();
-
-      const pdfData = await new Promise<any>((resolve, reject) => {
-        pdfExtract.extractBuffer(
-          buffer,
-          {},
-          (error, data) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-
-            resolve(data);
-          }
-        );
-      });
-
-      extractedText = (pdfData.pages ?? [])
-        .map((page: any) =>
-          (page.content ?? [])
-            .map((item: any) => item.str ?? "")
-            .join(" ")
-        )
-        .join("\n");
-    }
-
-    // TXT
-    else if (fileName.endsWith(".txt")) {
+    } else if (fileName.endsWith(".txt")) {
       extractedText = buffer.toString("utf-8");
-    }
-
-    // Unsupported
-    else {
+    } else if (fileName.endsWith(".pdf")) {
       await supabase
         .from("resumes")
         .update({
           parsing_status: "failed",
-          parsing_error: "Unsupported resume file type.",
+          parsing_error:
+            "PDF parsing is temporarily disabled. Please upload DOCX or TXT.",
         })
         .eq("id", resume.id)
         .eq("user_id", user.id);
@@ -204,7 +159,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Unsupported resume file type. Use PDF, DOCX, or TXT.",
+            "PDF parsing is temporarily disabled. Please upload the DOCX version for now.",
+        },
+        { status: 400 }
+      );
+    } else {
+      await supabase
+        .from("resumes")
+        .update({
+          parsing_status: "failed",
+          parsing_error:
+            "Unsupported resume file type.",
+        })
+        .eq("id", resume.id)
+        .eq("user_id", user.id);
+
+      return NextResponse.json(
+        {
+          error:
+            "Unsupported resume file type. Use DOCX or TXT for now.",
         },
         { status: 400 }
       );
