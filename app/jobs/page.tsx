@@ -46,8 +46,57 @@ type Job = {
   posted_at: string | null;
   collected_at: string;
   created_at: string;
+  source_type?: string | null;
+  application_method?: string | null;
+  contact_email?: string | null;
+  recruiter_name?: string | null;
+  source_post_text?: string | null;
+  agent_status?: string | null;
 };
 
+type AiProcessedJob = {
+  title: string;
+  company: string;
+  location: string;
+  country: string;
+  category: string;
+  source: string;
+  job_url: string;
+  job_description: string;
+  employment_type: string;
+  salary_text: string;
+  posted_at: string | null;
+  source_type: "formal_job" | "recruiter_post";
+  application_method: "website" | "email" | "manual";
+  contact_email: string;
+  recruiter_name: string;
+  source_post_text: string;
+  agent_notes: string;
+  skills?: string[];
+  requirements?: string[];
+};
+type RealAtsMatch = {
+  job_id: string;
+  job_title: string;
+  company: string;
+  resume_id: string;
+  resume_name: string;
+  overall_score: number;
+  level: string;
+  matched_skills: string[];
+  missing_skills: string[];
+  matched_certifications: string[];
+  missing_certifications: string[];
+  matched_keywords: string[];
+  missing_keywords: string[];
+  strengths: string[];
+  gaps: string[];
+  experience_alignment: string;
+  role_alignment: string;
+  ats_notes: string[];
+  tailoring_recommendations: string[];
+  summary: string;
+};
 const sourceOptions = [
   "LinkedIn",
   "Indeed",
@@ -107,6 +156,19 @@ export default function JobsPage() {
 
   const [appliedJobIds, setAppliedJobIds] =
     useState<string[]>([]);
+
+  const [rawJobText, setRawJobText] = useState("");
+  const [aiSource, setAiSource] = useState("LinkedIn");
+  const [aiJobUrl, setAiJobUrl] = useState("");
+  const [isProcessingJob, setIsProcessingJob] = useState(false);
+  const [isSavingProcessedJob, setIsSavingProcessedJob] = useState(false);
+  const [processedJob, setProcessedJob] =
+    useState<AiProcessedJob | null>(null);
+    const [atsLoadingJobId, setAtsLoadingJobId] =
+  useState<string | null>(null);
+
+const [realAtsResults, setRealAtsResults] =
+  useState<Record<string, RealAtsMatch>>({});
 
   const loadJobs = useCallback(async () => {
     setIsLoading(true);
@@ -385,6 +447,213 @@ export default function JobsPage() {
     setApplyingJobId(null);
   }
 
+  async function processRawJob() {
+    setMessage("");
+    setProcessedJob(null);
+
+    if (!rawJobText.trim()) {
+      setMessage("Paste a job description or recruiter post first.");
+      setMessageType("error");
+      return;
+    }
+
+    setIsProcessingJob(true);
+
+    try {
+      const response = await fetch("/api/agent/process-job", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          raw_text: rawJobText.trim(),
+          source: aiSource,
+          job_url: aiJobUrl.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          `AI processing failed: ${
+            result.error ?? "Unknown error"
+          }`
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setProcessedJob(result.job as AiProcessedJob);
+      setMessage(
+        "AI analysis complete. Review the extracted details before saving."
+      );
+      setMessageType("success");
+    } catch (error) {
+      setMessage(
+        `AI processing failed: ${
+          error instanceof Error
+            ? error.message
+            : "Unexpected error"
+        }`
+      );
+      setMessageType("error");
+    } finally {
+      setIsProcessingJob(false);
+    }
+  }
+
+  async function saveProcessedJob() {
+    if (!processedJob) return;
+
+    if (!processedJob.title?.trim()) {
+      setMessage("AI could not identify the job title. Please use Add a Job.");
+      setMessageType("error");
+      return;
+    }
+
+    if (!processedJob.company?.trim()) {
+      setMessage(
+        "AI could not identify the company. Please verify the post and use Add a Job if needed."
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setIsSavingProcessedJob(true);
+    setMessage("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setMessage("Please sign in again.");
+        setMessageType("error");
+        return;
+      }
+
+      const response = await fetch("/api/agent/ingest-job", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(processedJob),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          `Processed job could not be saved: ${
+            result.error ?? "Unknown error"
+          }`
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setMessage(
+        "Processed job saved successfully. Your existing match engine will score it below."
+      );
+      setMessageType("success");
+      setRawJobText("");
+      setAiJobUrl("");
+      setProcessedJob(null);
+      await loadJobs();
+    } catch (error) {
+      setMessage(
+        `Processed job could not be saved: ${
+          error instanceof Error
+            ? error.message
+            : "Unexpected error"
+        }`
+      );
+      setMessageType("error");
+    } finally {
+      setIsSavingProcessedJob(false);
+    }
+  }
+async function runRealAtsMatch(
+  job: Job,
+  recommendedResumeId: string | null
+) {
+  setMessage("");
+
+  const resumeId =
+    recommendedResumeId ??
+    resumes.find((resume) => resume.is_primary)?.id ??
+    resumes[0]?.id;
+
+  if (!resumeId) {
+    setMessage(
+      "No resume is available. Upload and parse a resume first."
+    );
+    setMessageType("error");
+    return;
+  }
+
+  setAtsLoadingJobId(job.id);
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setMessage("Please sign in again.");
+      setMessageType("error");
+      return;
+    }
+
+    const response = await fetch("/api/agent/match-job", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        job_id: job.id,
+        resume_id: resumeId,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(
+        `Real ATS match failed: ${
+          result.error ?? "Unknown error"
+        }`
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setRealAtsResults((current) => ({
+      ...current,
+      [job.id]: result.match as RealAtsMatch,
+    }));
+
+    setMessage(
+      `Real ATS analysis completed for ${job.title}.`
+    );
+    setMessageType("success");
+  } catch (error) {
+    setMessage(
+      `Real ATS match failed: ${
+        error instanceof Error
+          ? error.message
+          : "Unexpected error"
+      }`
+    );
+    setMessageType("error");
+  } finally {
+    setAtsLoadingJobId(null);
+  }
+}
   const filteredJobs = jobs.filter((job) => {
     const searchableText = [
       job.title,
@@ -511,9 +780,9 @@ export default function JobsPage() {
               </h2>
 
               <p className="mt-2 max-w-3xl text-slate-400">
-                Add vacancies, compare them with your
-                profile and resumes, and track the jobs
-                you apply for.
+                Paste vacancies or recruiter posts, let AI extract the
+                details, review them, then save and match them against
+                your profile and resumes.
               </p>
             </header>
 
@@ -525,9 +794,172 @@ export default function JobsPage() {
               </div>
             )}
 
+            <section className="mb-6 rounded-2xl border border-cyan-500/30 bg-slate-900 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-cyan-400">
+                    Agentic Job Processor
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold">
+                    Paste a job post and let AI structure it
+                  </h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                    Works with normal vacancies and recruiter/social posts, including
+                    posts that ask you to send a CV by email. Nothing is saved until
+                    you review the extracted details and click Save Processed Job.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <select
+                  value={aiSource}
+                  onChange={(event) => setAiSource(event.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+                >
+                  {sourceOptions.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="url"
+                  value={aiJobUrl}
+                  onChange={(event) => setAiJobUrl(event.target.value)}
+                  placeholder="Original job/post URL (optional)"
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+                />
+              </div>
+
+              <textarea
+                value={rawJobText}
+                onChange={(event) => setRawJobText(event.target.value)}
+                placeholder="Paste the complete job description or recruiter post here..."
+                rows={10}
+                className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+              />
+
+              <button
+                type="button"
+                onClick={processRawJob}
+                disabled={isProcessingJob}
+                className="mt-4 rounded-lg bg-cyan-500 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isProcessingJob ? "Analyzing with AI..." : "Analyze Job with AI"}
+              </button>
+
+              {processedJob && (
+                <div className="mt-6 rounded-xl border border-slate-700 bg-slate-950 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        AI Preview — review before saving
+                      </p>
+                      <h4 className="mt-1 text-xl font-semibold">
+                        {processedJob.title || "Title not identified"}
+                      </h4>
+                      <p className="mt-1 text-slate-300">
+                        {processedJob.company || "Company not identified"}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-cyan-300">
+                        {processedJob.source_type === "recruiter_post"
+                          ? "Recruiter Post"
+                          : "Formal Job"}
+                      </span>
+                      <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
+                        Apply: {processedJob.application_method || "unknown"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-lg bg-slate-900 p-3">
+                      <p className="text-xs text-slate-500">Location</p>
+                      <p className="mt-1 text-sm">
+                        {[processedJob.location, processedJob.country]
+                          .filter(Boolean)
+                          .join(", ") || "Not identified"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-900 p-3">
+                      <p className="text-xs text-slate-500">Category</p>
+                      <p className="mt-1 text-sm">
+                        {processedJob.category || "General"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-900 p-3">
+                      <p className="text-xs text-slate-500">Recruiter</p>
+                      <p className="mt-1 text-sm">
+                        {processedJob.recruiter_name || "Not identified"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-900 p-3">
+                      <p className="text-xs text-slate-500">Contact email</p>
+                      <p className="mt-1 break-all text-sm text-cyan-300">
+                        {processedJob.contact_email || "Not identified"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {processedJob.skills && processedJob.skills.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-semibold">Extracted skills</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {processedJob.skills.slice(0, 12).map((skill) => (
+                          <span
+                            key={skill}
+                            className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs text-cyan-300"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {processedJob.job_description && (
+                    <div className="mt-4">
+                      <p className="text-sm font-semibold">Processed description</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">
+                        {processedJob.job_description}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={saveProcessedJob}
+                      disabled={isSavingProcessedJob}
+                      className="rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSavingProcessedJob
+                        ? "Saving..."
+                        : "Save Processed Job"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setProcessedJob(null)}
+                      className="rounded-lg border border-slate-600 px-5 py-3 text-slate-300 hover:bg-slate-800"
+                    >
+                      Discard Preview
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
             <section className="grid gap-6 xl:grid-cols-[390px_1fr]">
 
               {/* ADD JOB */}
+   
               <form
                 onSubmit={handleSubmit}
                 className="h-fit rounded-2xl border border-slate-800 bg-slate-900 p-6"
@@ -758,6 +1190,8 @@ export default function JobsPage() {
 
                       const alreadyApplied =
                         appliedJobIds.includes(job.id);
+                        const realAtsResult =
+  realAtsResults[job.id];
 
                       return (
                         <article
@@ -787,6 +1221,28 @@ export default function JobsPage() {
                             Posted:{" "}
                             {formatDate(job.posted_at)}
                           </p>
+
+                          {(job.source_type || job.application_method || job.contact_email) && (
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                              {job.source_type && (
+                                <span className="rounded-full bg-slate-950 px-3 py-1 text-slate-300">
+                                  {job.source_type === "recruiter_post"
+                                    ? "Recruiter Post"
+                                    : "Formal Job"}
+                                </span>
+                              )}
+                              {job.application_method && (
+                                <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-cyan-300">
+                                  Apply: {job.application_method}
+                                </span>
+                              )}
+                              {job.contact_email && (
+                                <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
+                                  {job.contact_email}
+                                </span>
+                              )}
+                            </div>
+                          )}
 
                           {/* MATCH */}
                           {match && (
@@ -921,9 +1377,204 @@ export default function JobsPage() {
                                 : "Mark as Applied"}
 
                             </button>
+                            <button
+  type="button"
+  onClick={() =>
+    runRealAtsMatch(
+      job,
+      match?.recommendedResumeId ?? null
+    )
+  }
+  disabled={atsLoadingJobId === job.id}
+  className="rounded-lg border border-purple-500/40 px-5 py-3 font-semibold text-purple-300 hover:bg-purple-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {atsLoadingJobId === job.id
+    ? "Running ATS..."
+    : "Run Real ATS Match"}
+</button>
 
                           </div>
+{realAtsResult && (
+  <div className="mt-5 rounded-xl border border-purple-500/30 bg-slate-950 p-5">
+    <div className="flex flex-wrap items-center gap-3">
+      <span
+        className={`rounded-full px-4 py-2 text-lg font-bold ${
+          realAtsResult.overall_score >= 75
+            ? "bg-emerald-500/15 text-emerald-400"
+            : realAtsResult.overall_score >= 50
+            ? "bg-amber-500/15 text-amber-300"
+            : "bg-red-500/15 text-red-300"
+        }`}
+      >
+        {realAtsResult.overall_score}% Real ATS Match
+      </span>
 
+      <span className="text-sm text-slate-300">
+        {realAtsResult.level}
+      </span>
+    </div>
+
+    <div className="mt-4 rounded-lg bg-purple-500/5 p-3">
+      <p className="text-xs text-slate-500">
+        Resume analyzed
+      </p>
+
+      <p className="mt-1 font-semibold text-purple-300">
+        {realAtsResult.resume_name}
+      </p>
+    </div>
+
+    {realAtsResult.matched_certifications?.length > 0 && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Certifications Found
+        </p>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {realAtsResult.matched_certifications.map((item) => (
+            <span
+              key={item}
+              className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300"
+            >
+              ✓ {item}
+            </span>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {realAtsResult.matched_skills?.length > 0 && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Matched Skills
+        </p>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {realAtsResult.matched_skills
+            .slice(0, 15)
+            .map((skill) => (
+              <span
+                key={skill}
+                className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300"
+              >
+                ✓ {skill}
+              </span>
+            ))}
+        </div>
+      </div>
+    )}
+
+    {realAtsResult.missing_skills?.length > 0 && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Missing / Weak Skills
+        </p>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          {realAtsResult.missing_skills
+            .slice(0, 15)
+            .map((skill) => (
+              <span
+                key={skill}
+                className="rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-300"
+              >
+                {skill}
+              </span>
+            ))}
+        </div>
+      </div>
+    )}
+
+    {realAtsResult.strengths?.length > 0 && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Strengths
+        </p>
+
+        {realAtsResult.strengths.map((strength) => (
+          <p
+            key={strength}
+            className="mt-2 text-sm text-emerald-300"
+          >
+            ✓ {strength}
+          </p>
+        ))}
+      </div>
+    )}
+
+    {realAtsResult.gaps?.length > 0 && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Gaps
+        </p>
+
+        {realAtsResult.gaps.map((gap) => (
+          <p
+            key={gap}
+            className="mt-2 text-sm text-amber-300"
+          >
+            • {gap}
+          </p>
+        ))}
+      </div>
+    )}
+
+    {realAtsResult.experience_alignment && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Experience Alignment
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          {realAtsResult.experience_alignment}
+        </p>
+      </div>
+    )}
+
+    {realAtsResult.role_alignment && (
+      <div className="mt-5">
+        <p className="font-semibold">
+          Role Alignment
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          {realAtsResult.role_alignment}
+        </p>
+      </div>
+    )}
+
+    {realAtsResult.tailoring_recommendations?.length > 0 && (
+      <div className="mt-5 rounded-lg bg-cyan-500/5 p-4">
+        <p className="font-semibold text-cyan-300">
+          Resume Tailoring Recommendations
+        </p>
+
+        {realAtsResult.tailoring_recommendations.map(
+          (recommendation) => (
+            <p
+              key={recommendation}
+              className="mt-2 text-sm leading-6 text-slate-300"
+            >
+              • {recommendation}
+            </p>
+          )
+        )}
+      </div>
+    )}
+
+    {realAtsResult.summary && (
+      <div className="mt-5 border-t border-slate-800 pt-4">
+        <p className="font-semibold">
+          AI Summary
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          {realAtsResult.summary}
+        </p>
+      </div>
+    )}
+  </div>
+)}
                         </article>
                       );
                     })

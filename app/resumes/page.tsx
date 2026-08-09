@@ -23,6 +23,9 @@ type Resume = {
   description: string | null;
   is_primary: boolean;
   created_at: string;
+  parsing_status: string | null;
+  parsed_at: string | null;
+  parsing_error: string | null;
 };
 
 const resumeCategories = [
@@ -91,7 +94,10 @@ export default function ResumeLibraryPage() {
           file_path,
           description,
           is_primary,
-          created_at
+          created_at,
+          parsing_status,
+          parsed_at,
+          parsing_error
         `
       )
       .eq("user_id", user.id)
@@ -315,6 +321,70 @@ export default function ResumeLibraryPage() {
 
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     setWorkingResumeId(null);
+  }
+
+  async function parseResume(resume: Resume) {
+    setWorkingResumeId(resume.id);
+    setMessage("");
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      showMessage("Please sign in again.", "error");
+      setWorkingResumeId(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/agent/parse-resume", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          resume_id: resume.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        showMessage(
+          `Resume parsing failed: ${result.error ?? "Unknown error"}`,
+          "error"
+        );
+        await loadResumes();
+        setWorkingResumeId(null);
+        return;
+      }
+
+      const characterCount =
+        typeof result?.resume?.character_count === "number"
+          ? result.resume.character_count.toLocaleString()
+          : null;
+
+      showMessage(
+        characterCount
+          ? `Resume parsed successfully — ${characterCount} characters extracted.`
+          : "Resume parsed successfully.",
+        "success"
+      );
+
+      await loadResumes();
+    } catch (error) {
+      showMessage(
+        `Resume parsing failed: ${
+          error instanceof Error ? error.message : "Unexpected error"
+        }`,
+        "error"
+      );
+    } finally {
+      setWorkingResumeId(null);
+    }
   }
 
   async function deleteResume(resume: Resume) {
@@ -659,6 +729,39 @@ export default function ResumeLibraryPage() {
                               Added: {formatDate(resume.created_at)}
                             </p>
 
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              {resume.parsing_status === "completed" ? (
+                                <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
+                                  Parsed ✓
+                                </span>
+                              ) : resume.parsing_status === "processing" ? (
+                                <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-300">
+                                  Parsing...
+                                </span>
+                              ) : resume.parsing_status === "failed" ? (
+                                <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-300">
+                                  Parse Failed
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-400">
+                                  Not Parsed
+                                </span>
+                              )}
+
+                              {resume.parsed_at && (
+                                <span className="text-xs text-slate-500">
+                                  Parsed: {formatDate(resume.parsed_at)}
+                                </span>
+                              )}
+                            </div>
+
+                            {resume.parsing_status === "failed" &&
+                              resume.parsing_error && (
+                                <p className="mt-2 max-w-2xl text-xs text-red-300">
+                                  {resume.parsing_error}
+                                </p>
+                              )}
+
                             {resume.description && (
                               <p className="mt-3 max-w-2xl text-sm text-slate-300">
                                 {resume.description}
@@ -674,6 +777,19 @@ export default function ResumeLibraryPage() {
                               className="rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800 disabled:opacity-50"
                             >
                               Open
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={workingResumeId === resume.id}
+                              onClick={() => parseResume(resume)}
+                              className="rounded-lg border border-emerald-500/40 px-3 py-2 text-sm text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-50"
+                            >
+                              {workingResumeId === resume.id
+                                ? "Working..."
+                                : resume.parsing_status === "completed"
+                                ? "Re-Parse Resume"
+                                : "Parse Resume"}
                             </button>
 
                             {!resume.is_primary && (
