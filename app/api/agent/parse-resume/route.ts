@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+import { PDFExtract } from "pdf.js-extract";
 
 type ParseResumeRequest = {
   resume_id?: string;
 };
 
-export async function POST(request: NextRequest) {
-  let parser: PDFParse | null = null;
+export const runtime = "nodejs";
 
+export async function POST(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -34,21 +34,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(
-      supabaseUrl,
-      supabaseKey,
-      {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: {
+        headers: {
+          Authorization: authHeader,
         },
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      }
-    );
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
 
     const {
       data: { user },
@@ -78,15 +74,13 @@ export async function POST(request: NextRequest) {
 
     const { data: resume, error: resumeError } = await supabase
       .from("resumes")
-      .select(
-        `
-          id,
-          user_id,
-          name,
-          file_name,
-          file_path
-        `
-      )
+      .select(`
+        id,
+        user_id,
+        name,
+        file_name,
+        file_path
+      `)
       .eq("id", resumeId)
       .eq("user_id", user.id)
       .single();
@@ -161,12 +155,30 @@ export async function POST(request: NextRequest) {
 
       extractedText = result.value;
     } else if (fileName.endsWith(".pdf")) {
-      parser = new PDFParse({
-        data: new Uint8Array(buffer),
+      const pdfExtract = new PDFExtract();
+
+      const pdfData = await new Promise<any>((resolve, reject) => {
+        pdfExtract.extractBuffer(
+          buffer,
+          {},
+          (error, data) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+
+            resolve(data);
+          }
+        );
       });
 
-      const result = await parser.getText();
-      extractedText = result.text;
+      extractedText = (pdfData.pages ?? [])
+        .map((page: any) =>
+          (page.content ?? [])
+            .map((item: any) => item.str ?? "")
+            .join(" ")
+        )
+        .join("\n");
     } else if (fileName.endsWith(".txt")) {
       extractedText = buffer.toString("utf-8");
     } else {
@@ -193,6 +205,7 @@ export async function POST(request: NextRequest) {
       .replace(/\u0000/g, "")
       .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]{2,}/g, " ")
       .trim();
 
     if (!cleanedText) {
@@ -259,9 +272,5 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
-  } finally {
-    if (parser) {
-      await parser.destroy();
-    }
   }
 }
