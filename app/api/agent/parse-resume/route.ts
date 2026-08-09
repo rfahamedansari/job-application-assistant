@@ -148,13 +148,17 @@ export async function POST(request: NextRequest) {
 
     let extractedText = "";
 
+    // DOCX
     if (fileName.endsWith(".docx")) {
       const result = await mammoth.extractRawText({
         buffer,
       });
 
       extractedText = result.value;
-    } else if (fileName.endsWith(".pdf")) {
+    }
+
+    // PDF
+    else if (fileName.endsWith(".pdf")) {
       const pdfExtract = new PDFExtract();
 
       const pdfData = await new Promise<any>((resolve, reject) => {
@@ -179,15 +183,20 @@ export async function POST(request: NextRequest) {
             .join(" ")
         )
         .join("\n");
-    } else if (fileName.endsWith(".txt")) {
+    }
+
+    // TXT
+    else if (fileName.endsWith(".txt")) {
       extractedText = buffer.toString("utf-8");
-    } else {
+    }
+
+    // Unsupported
+    else {
       await supabase
         .from("resumes")
         .update({
           parsing_status: "failed",
-          parsing_error:
-            "Unsupported resume file type.",
+          parsing_error: "Unsupported resume file type.",
         })
         .eq("id", resume.id)
         .eq("user_id", user.id);
