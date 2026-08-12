@@ -194,56 +194,7 @@ export default function ApplicationsPage() {
   return (
     <AuthGuard>
       <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto flex min-h-screen max-w-7xl">
-          <aside className="hidden w-64 border-r border-slate-800 bg-slate-900 p-6 lg:block">
-            <div className="mb-10">
-              <p className="text-sm font-medium text-cyan-400">
-                Ahamed AI Career OS
-              </p>
-
-              <h1 className="mt-2 text-2xl font-bold">
-                Applications
-              </h1>
-            </div>
-
-            <nav className="space-y-2 text-sm">
-              <Link
-                href="/"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Dashboard
-              </Link>
-
-              <Link
-                href="/jobs"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Jobs
-              </Link>
-
-              <Link
-                href="/resumes"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Resume Library
-              </Link>
-
-              <Link
-                href="/profile"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Profile & Preferences
-              </Link>
-
-              <Link
-                href="/applications"
-                className="block rounded-lg bg-cyan-500 px-4 py-3 font-medium text-slate-950"
-              >
-                Applications
-              </Link>
-            </nav>
-          </aside>
-
+        <div className="mx-auto min-h-screen max-w-7xl">
           <section className="flex-1 p-6 md:p-10">
             <header className="mb-8">
               <p className="text-sm font-medium text-cyan-400">
@@ -437,7 +388,12 @@ export default function ApplicationsPage() {
                               Open Job
                             </a>
                           )}
-
+ <Link
+    href={`/interview-prep?applicationId=${application.id}`}
+    className="rounded-lg border border-cyan-500 px-4 py-2 font-semibold text-cyan-300 hover:bg-cyan-500/10"
+  >
+    Prepare Interview
+  </Link>
                           <button
                             type="button"
                             onClick={() =>

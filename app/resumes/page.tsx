@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   ChangeEvent,
   FormEvent,
@@ -477,50 +476,8 @@ export default function ResumeLibraryPage() {
   return (
     <AuthGuard>
       <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto flex min-h-screen max-w-7xl">
-          <aside className="hidden w-64 border-r border-slate-800 bg-slate-900 p-6 lg:block">
-            <div className="mb-10">
-              <p className="text-sm font-medium text-cyan-400">
-                Ahamed AI Career OS
-              </p>
+        <div className="mx-auto min-h-screen max-w-7xl">
 
-              <h1 className="mt-2 text-2xl font-bold">
-                Resume Library
-              </h1>
-            </div>
-
-            <nav className="space-y-2 text-sm">
-              <Link
-                href="/"
-                className="block rounded-lg px-4 py-3 text-slate-300 transition hover:bg-slate-800"
-              >
-                Dashboard
-              </Link>
-
-              <Link
-                href="/resumes"
-                className="block rounded-lg bg-cyan-500 px-4 py-3 font-medium text-slate-950"
-              >
-                Resume Library
-              </Link>
-
-              <span className="block rounded-lg px-4 py-3 text-slate-500">
-                Daily Jobs
-              </span>
-
-              <span className="block rounded-lg px-4 py-3 text-slate-500">
-                Applications
-              </span>
-
-              <span className="block rounded-lg px-4 py-3 text-slate-500">
-                Recruiters
-              </span>
-
-              <span className="block rounded-lg px-4 py-3 text-slate-500">
-                Analytics
-              </span>
-            </nav>
-          </aside>
 
           <section className="flex-1 p-6 md:p-10">
             <header className="mb-8">

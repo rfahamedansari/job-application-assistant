@@ -1,0 +1,23 @@
+"use client";
+
+import { useEffect } from "react";
+
+export default function RegisterServiceWorker() {
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then(() => {
+          console.log("Career OS service worker registered.");
+        })
+        .catch((error) => {
+          console.error(
+            "Service worker registration failed:",
+            error
+          );
+        });
+    }
+  }, []);
+
+  return null;
+}

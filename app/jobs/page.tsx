@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   FormEvent,
   useCallback,
@@ -97,6 +96,34 @@ type RealAtsMatch = {
   tailoring_recommendations: string[];
   summary: string;
 };
+
+type BestResumeRanking = {
+  resume_id: string;
+  resume_name: string;
+  resume_category: string;
+  score: number;
+  level: string;
+  strongest_matches: string[];
+  important_gaps: string[];
+  reason: string;
+};
+
+type BestResumeResult = {
+  job: {
+    id: string;
+    title: string;
+    company: string;
+  };
+  best_resume: {
+    resume_id: string;
+    resume_name: string;
+    resume_category: string;
+    score: number;
+    level: string;
+  };
+  selection_reason: string;
+  rankings: BestResumeRanking[];
+};
 const sourceOptions = [
   "LinkedIn",
   "Indeed",
@@ -169,6 +196,12 @@ export default function JobsPage() {
 
 const [realAtsResults, setRealAtsResults] =
   useState<Record<string, RealAtsMatch>>({});
+
+const [bestResumeLoadingJobId, setBestResumeLoadingJobId] =
+  useState<string | null>(null);
+
+const [bestResumeResults, setBestResumeResults] =
+  useState<Record<string, BestResumeResult>>({});
 
   const loadJobs = useCallback(async () => {
     setIsLoading(true);
@@ -654,6 +687,70 @@ async function runRealAtsMatch(
     setAtsLoadingJobId(null);
   }
 }
+
+async function compareAllResumes(job: Job) {
+  setMessage("");
+  setBestResumeLoadingJobId(job.id);
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setMessage("Please sign in again.");
+      setMessageType("error");
+      return;
+    }
+
+    const response = await fetch("/api/agent/select-best-resume", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        job_id: job.id,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(
+        `Resume comparison failed: ${
+          result.error ?? "Unknown error"
+        }`
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setBestResumeResults((current) => ({
+      ...current,
+      [job.id]: result as BestResumeResult,
+    }));
+
+    setMessage(
+      `Best resume selected for ${job.title}: ${
+        result.best_resume?.resume_name ?? "Resume"
+      }.`
+    );
+    setMessageType("success");
+  } catch (error) {
+    setMessage(
+      `Resume comparison failed: ${
+        error instanceof Error
+          ? error.message
+          : "Unexpected error"
+      }`
+    );
+    setMessageType("error");
+  } finally {
+    setBestResumeLoadingJobId(null);
+  }
+}
+
   const filteredJobs = jobs.filter((job) => {
     const searchableText = [
       job.title,
@@ -712,61 +809,7 @@ async function runRealAtsMatch(
   return (
     <AuthGuard>
       <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto flex min-h-screen max-w-7xl">
-
-          {/* SIDEBAR */}
-          <aside className="hidden w-64 border-r border-slate-800 bg-slate-900 p-6 lg:block">
-
-            <div className="mb-10">
-              <p className="text-sm font-medium text-cyan-400">
-                Ahamed AI Career OS
-              </p>
-
-              <h1 className="mt-2 text-2xl font-bold">
-                Jobs
-              </h1>
-            </div>
-
-            <nav className="space-y-2 text-sm">
-
-              <Link
-                href="/"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Dashboard
-              </Link>
-
-              <Link
-                href="/jobs"
-                className="block rounded-lg bg-cyan-500 px-4 py-3 font-medium text-slate-950"
-              >
-                Jobs
-              </Link>
-
-              <Link
-                href="/resumes"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Resume Library
-              </Link>
-
-              <Link
-                href="/profile"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Profile & Preferences
-              </Link>
-
-              <Link
-                href="/applications"
-                className="block rounded-lg px-4 py-3 text-slate-300 hover:bg-slate-800"
-              >
-                Applications
-              </Link>
-
-            </nav>
-          </aside>
-
+        <div className="mx-auto min-h-screen max-w-7xl">
           {/* MAIN */}
           <section className="flex-1 p-6 md:p-10">
 
@@ -1192,6 +1235,8 @@ async function runRealAtsMatch(
                         appliedJobIds.includes(job.id);
                         const realAtsResult =
   realAtsResults[job.id];
+                        const bestResumeResult =
+  bestResumeResults[job.id];
 
                       return (
                         <article
@@ -1378,11 +1423,24 @@ async function runRealAtsMatch(
 
                             </button>
                             <button
+                              type="button"
+                              onClick={() => compareAllResumes(job)}
+                              disabled={bestResumeLoadingJobId === job.id}
+                              className="rounded-lg border border-cyan-500/40 px-5 py-3 font-semibold text-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {bestResumeLoadingJobId === job.id
+                                ? "Comparing Resumes..."
+                                : "Compare All Resumes"}
+                            </button>
+
+                            <button
   type="button"
   onClick={() =>
     runRealAtsMatch(
       job,
-      match?.recommendedResumeId ?? null
+      bestResumeResult?.best_resume.resume_id ??
+        match?.recommendedResumeId ??
+        null
     )
   }
   disabled={atsLoadingJobId === job.id}
@@ -1394,6 +1452,123 @@ async function runRealAtsMatch(
 </button>
 
                           </div>
+
+{bestResumeResult && (
+  <div className="mt-5 rounded-xl border border-cyan-500/30 bg-slate-950 p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-cyan-400">
+          AI Best Resume Selection
+        </p>
+        <h4 className="mt-1 text-lg font-semibold">
+          {bestResumeResult.best_resume.resume_name}
+        </h4>
+        <p className="mt-1 text-sm text-slate-400">
+          {bestResumeResult.best_resume.resume_category}
+        </p>
+      </div>
+
+      <span
+        className={`rounded-full px-4 py-2 text-lg font-bold ${
+          bestResumeResult.best_resume.score >= 75
+            ? "bg-emerald-500/15 text-emerald-400"
+            : bestResumeResult.best_resume.score >= 50
+            ? "bg-amber-500/15 text-amber-300"
+            : "bg-red-500/15 text-red-300"
+        }`}
+      >
+        {bestResumeResult.best_resume.score}% Best Match
+      </span>
+    </div>
+
+    {bestResumeResult.selection_reason && (
+      <p className="mt-4 text-sm leading-6 text-slate-300">
+        {bestResumeResult.selection_reason}
+      </p>
+    )}
+
+    <div className="mt-5 space-y-3">
+      <p className="font-semibold">Resume Ranking</p>
+
+      {bestResumeResult.rankings.map((ranking, index) => (
+        <div
+          key={ranking.resume_id}
+          className="rounded-lg border border-slate-800 bg-slate-900 p-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">
+                #{index + 1} {ranking.resume_name}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {ranking.resume_category}
+              </p>
+            </div>
+
+            <span
+              className={`rounded-full px-3 py-1 text-sm font-bold ${
+                ranking.score >= 75
+                  ? "bg-emerald-500/15 text-emerald-400"
+                  : ranking.score >= 50
+                  ? "bg-amber-500/15 text-amber-300"
+                  : "bg-red-500/15 text-red-300"
+              }`}
+            >
+              {ranking.score}% · {ranking.level}
+            </span>
+          </div>
+
+          {ranking.reason && (
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              {ranking.reason}
+            </p>
+          )}
+
+          {ranking.strongest_matches?.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-emerald-300">
+                Strongest matches
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {ranking.strongest_matches.slice(0, 6).map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300"
+                  >
+                    ✓ {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {ranking.important_gaps?.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-amber-300">
+                Important gaps
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {ranking.important_gaps.slice(0, 5).map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-300"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+
+    <div className="mt-4 rounded-lg bg-cyan-500/5 p-3 text-sm text-cyan-200">
+      Run Real ATS Match will now use this AI-selected resume for this job.
+    </div>
+  </div>
+)}
+
 {realAtsResult && (
   <div className="mt-5 rounded-xl border border-purple-500/30 bg-slate-950 p-5">
     <div className="flex flex-wrap items-center gap-3">

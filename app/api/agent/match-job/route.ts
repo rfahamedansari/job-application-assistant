@@ -2,54 +2,79 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-type MatchRequest = {
+type SelectBestResumeRequest = {
   job_id?: string;
-  resume_id?: string;
 };
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+type ResumeScore = {
+  resume_id: string;
+  resume_name: string;
+  resume_category: string;
+  score: number;
+  level: string;
+  strongest_matches: string[];
+  important_gaps: string[];
+  reason: string;
+};
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+
+    if (!openaiApiKey) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY is not configured." },
         { status: 500 }
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const openai = new OpenAI({
+      apiKey: openaiApiKey,
+    });
+
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        { error: "Supabase environment variables are missing." },
+        {
+          error:
+            "Supabase environment variables are missing.",
+        },
         { status: 500 }
       );
     }
 
-    const authHeader = request.headers.get("authorization");
+    const authHeader =
+      request.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "Missing authentication token." },
+        {
+          error: "Missing authentication token.",
+        },
         { status: 401 }
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: {
-          Authorization: authHeader,
+    const supabase = createClient(
+      supabaseUrl,
+      supabaseKey,
+      {
+        global: {
+          headers: {
+            Authorization: authHeader,
+          },
         },
-      },
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }
+    );
 
     const {
       data: { user },
@@ -58,27 +83,31 @@ export async function POST(request: NextRequest) {
 
     if (userError || !user) {
       return NextResponse.json(
-        { error: "Invalid or expired session." },
+        {
+          error: "Invalid or expired session.",
+        },
         { status: 401 }
       );
     }
 
-    const body = (await request.json()) as MatchRequest;
+    const body =
+      (await request.json()) as SelectBestResumeRequest;
 
     const jobId = body.job_id?.trim();
-    const resumeId = body.resume_id?.trim();
 
-    if (!jobId || !resumeId) {
+    if (!jobId) {
       return NextResponse.json(
-        { error: "job_id and resume_id are required." },
+        {
+          error: "job_id is required.",
+        },
         { status: 400 }
       );
     }
 
-    const { data: job, error: jobError } = await supabase
-      .from("jobs")
-      .select(
-        `
+    const { data: job, error: jobError } =
+      await supabase
+        .from("jobs")
+        .select(`
           id,
           title,
           company,
@@ -89,51 +118,18 @@ export async function POST(request: NextRequest) {
           employment_type,
           source_type,
           application_method
-        `
-      )
-      .eq("id", jobId)
-      .single();
+        `)
+        .eq("id", jobId)
+        .single();
 
     if (jobError || !job) {
       return NextResponse.json(
-        { error: jobError?.message ?? "Job not found." },
-        { status: 404 }
-      );
-    }
-
-    const { data: resume, error: resumeError } = await supabase
-      .from("resumes")
-      .select(
-        `
-          id,
-          user_id,
-          name,
-          category,
-          resume_text,
-          parsing_status
-        `
-      )
-      .eq("id", resumeId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (resumeError || !resume) {
-      return NextResponse.json(
-        { error: resumeError?.message ?? "Resume not found." },
-        { status: 404 }
-      );
-    }
-
-    if (
-      resume.parsing_status !== "completed" ||
-      !resume.resume_text?.trim()
-    ) {
-      return NextResponse.json(
         {
           error:
-            "This resume has not been parsed yet. Parse the resume first.",
+            jobError?.message ??
+            "Job not found.",
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
@@ -141,74 +137,157 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "This job does not contain enough job-description text for AI matching.",
+            "This job does not contain enough job-description text for resume comparison.",
         },
         { status: 400 }
       );
     }
 
-    const response = await openai.responses.create({
-      model: "gpt-5-mini",
+    const {
+      data: resumes,
+      error: resumesError,
+    } = await supabase
+      .from("resumes")
+      .select(`
+        id,
+        user_id,
+        name,
+        category,
+        resume_text,
+        parsing_status,
+        is_primary
+      `)
+      .eq("user_id", user.id)
+      .eq("parsing_status", "completed");
 
-      input: [
+    if (resumesError) {
+      return NextResponse.json(
         {
-          role: "system",
-          content: `
-You are an ATS and job-to-resume matching analyst.
+          error:
+            `Resumes could not be loaded: ${resumesError.message}`,
+        },
+        { status: 500 }
+      );
+    }
 
-Compare one job description with one real resume.
+    const parsedResumes =
+      (resumes ?? []).filter(
+        (resume) =>
+          resume.resume_text?.trim()
+      );
+
+    if (parsedResumes.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "No parsed resumes are available. Parse at least one resume first.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const resumeBundle = parsedResumes
+      .map(
+        (resume, index) => `
+RESUME ${index + 1}
+
+ID:
+${resume.id}
+
+NAME:
+${resume.name}
+
+CATEGORY:
+${resume.category ?? ""}
+
+PRIMARY:
+${resume.is_primary ? "Yes" : "No"}
+
+RESUME TEXT:
+${resume.resume_text}
+`
+      )
+      .join("\n\n====================\n\n");
+
+    const response =
+      await openai.responses.create({
+        model: "gpt-5-mini",
+
+        input: [
+          {
+            role: "system",
+            content: `
+You are the Resume Selection Agent for an AI Career OS.
+
+Your task is to compare one real job description against multiple real resumes belonging to the same candidate.
+
+Select and rank the resumes based only on evidence found in the supplied resume text.
 
 Important rules:
-- Use only evidence from the supplied job description and resume.
-- Never invent skills, certifications, achievements, projects, tools, employers, or experience.
-- Do not treat a skill as missing if it is clearly present anywhere in the resume.
-- Be conservative and consistent.
+
+- Never invent skills, certifications, projects, achievements, tools, employers, responsibilities, or experience.
+- Do not automatically prefer the primary resume.
+- The primary resume flag is informational only.
+- Score every supplied resume independently.
+- Use the same scoring philosophy for every resume.
+- A resume with the exact role/domain alignment should generally outrank a generic resume when the evidence supports it.
+- Do not give an artificially high score just because the candidate has many years of experience.
+- Missing important requirements should reduce the score.
 - The score is an ATS-style analytical estimate, not a guarantee of recruiter ATS results.
 
-Score out of 100 using these weighted areas:
-- Required skills and keywords: 35
-- Relevant experience/responsibilities: 25
-- Role/domain alignment: 15
-- Certifications/tools: 10
-- Seniority/years-of-experience alignment: 10
-- ATS/readability relevance: 5
+Score each resume out of 100:
+
+Required skills and keywords: 35
+Relevant experience/responsibilities: 25
+Role/domain alignment: 15
+Certifications/tools: 10
+Seniority/years-of-experience alignment: 10
+ATS/readability relevance: 5
+
+Level rules:
+
+75-100 = High Match
+50-74 = Medium Match
+0-49 = Low Match
 
 Return valid JSON only.
 
-Required JSON structure:
+Required JSON format:
 
 {
-  "overall_score": 0,
-  "level": "High Match",
-  "matched_skills": [],
-  "missing_skills": [],
-  "matched_certifications": [],
-  "missing_certifications": [],
-  "matched_keywords": [],
-  "missing_keywords": [],
-  "strengths": [],
-  "gaps": [],
-  "experience_alignment": "",
-  "role_alignment": "",
-  "ats_notes": [],
-  "tailoring_recommendations": [],
-  "summary": ""
+  "best_resume_id": "",
+  "best_resume_name": "",
+  "best_score": 0,
+  "selection_reason": "",
+  "rankings": [
+    {
+      "resume_id": "",
+      "resume_name": "",
+      "resume_category": "",
+      "score": 0,
+      "level": "High Match",
+      "strongest_matches": [],
+      "important_gaps": [],
+      "reason": ""
+    }
+  ]
 }
 
-Rules for level:
-- 75 to 100 = "High Match"
-- 50 to 74 = "Medium Match"
-- 0 to 49 = "Low Match"
+Rules:
 
-Tailoring recommendations must only suggest truthful reframing,
-reordering, emphasis, or keyword alignment based on experience that
-already exists in the resume.
-          `.trim(),
-        },
+1. Include every supplied resume exactly once in rankings.
+2. Sort rankings from highest score to lowest score.
+3. best_resume_id must equal the first ranked resume.
+4. Be conservative with scoring.
+5. Avoid score inflation.
+6. If two resumes are close, explain why one is slightly stronger.
+7. Use only facts found in the supplied job and resume text.
+            `.trim(),
+          },
 
-        {
-          role: "user",
-          content: `
+          {
+            role: "user",
+            content: `
 JOB TITLE:
 ${job.title}
 
@@ -219,7 +298,9 @@ CATEGORY:
 ${job.category ?? ""}
 
 LOCATION:
-${[job.location, job.country].filter(Boolean).join(", ")}
+${[job.location, job.country]
+  .filter(Boolean)
+  .join(", ")}
 
 EMPLOYMENT TYPE:
 ${job.employment_type ?? ""}
@@ -227,29 +308,30 @@ ${job.employment_type ?? ""}
 JOB DESCRIPTION:
 ${job.job_description}
 
-RESUME NAME:
-${resume.name}
+========================================
 
-RESUME CATEGORY:
-${resume.category}
+CANDIDATE RESUMES:
 
-RESUME TEXT:
-${resume.resume_text}
-          `.trim(),
-        },
-      ],
-    });
+${resumeBundle}
+            `.trim(),
+          },
+        ],
+      });
 
-    const outputText = response.output_text?.trim();
+    const outputText =
+      response.output_text?.trim();
 
     if (!outputText) {
       return NextResponse.json(
-        { error: "AI returned no match analysis." },
+        {
+          error:
+            "AI returned no resume-selection analysis.",
+        },
         { status: 500 }
       );
     }
 
-    let analysis;
+    let selection;
 
     try {
       const cleaned = outputText
@@ -258,12 +340,37 @@ ${resume.resume_text}
         .replace(/```$/, "")
         .trim();
 
-      analysis = JSON.parse(cleaned);
+      selection = JSON.parse(cleaned);
     } catch {
       return NextResponse.json(
         {
-          error: "AI response could not be parsed as JSON.",
+          error:
+            "AI response could not be parsed as JSON.",
           raw_response: outputText,
+        },
+        { status: 500 }
+      );
+    }
+
+    const rankings: ResumeScore[] =
+      Array.isArray(selection.rankings)
+        ? selection.rankings
+        : [];
+
+    rankings.sort(
+      (a, b) =>
+        Number(b.score ?? 0) -
+        Number(a.score ?? 0)
+    );
+
+    const bestResume =
+      rankings[0] ?? null;
+
+    if (!bestResume) {
+      return NextResponse.json(
+        {
+          error:
+            "AI did not return any resume rankings.",
         },
         { status: 500 }
       );
@@ -271,24 +378,43 @@ ${resume.resume_text}
 
     return NextResponse.json({
       success: true,
-      match: {
-        job_id: job.id,
-        job_title: job.title,
+
+      job: {
+        id: job.id,
+        title: job.title,
         company: job.company,
-        resume_id: resume.id,
-        resume_name: resume.name,
-        ...analysis,
       },
+
+      best_resume: {
+        resume_id:
+          bestResume.resume_id,
+        resume_name:
+          bestResume.resume_name,
+        resume_category:
+          bestResume.resume_category,
+        score:
+          bestResume.score,
+        level:
+          bestResume.level,
+      },
+
+      selection_reason:
+        selection.selection_reason ?? "",
+
+      rankings,
     });
   } catch (error) {
-    console.error("match-job error:", error);
+    console.error(
+      "select-best-resume error:",
+      error
+    );
 
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "Unexpected resume matching error.",
+            : "Unexpected best-resume selection error.",
       },
       { status: 500 }
     );
