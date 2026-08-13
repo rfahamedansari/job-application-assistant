@@ -212,13 +212,36 @@ export default function ApplicationsPage() {
 
     if (!draft) return;
 
-    await navigator.clipboard.writeText(
-      `Subject: ${draft.subject}\n\n${draft.body}`
-    );
+    const emailText = `Subject: ${draft.subject}\n\n${draft.body}`;
 
-    setMessage(
-      "Application email copied. Review the recipient, resume attachment, and content before sending."
-    );
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(emailText);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = emailText;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textArea);
+
+        if (!copied) {
+          throw new Error("Browser denied clipboard access.");
+        }
+      }
+
+      setMessage(
+        "Email copied successfully. Review the recipient, resume attachment, and content before sending."
+      );
+    } catch {
+      setMessage(
+        "Copy was blocked by the browser. Select the subject and email text manually, then press Ctrl+C."
+      );
+    }
   }
 
   function formatDate(value: string | null) {
@@ -545,4 +568,3 @@ export default function ApplicationsPage() {
     </AuthGuard>
   );
 }
- 
