@@ -30,12 +30,14 @@ export default function TopLogout() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleLogout}
-      className="fixed right-6 top-5 z-50 rounded-xl border border-red-500/40 bg-slate-950 px-5 py-2.5 text-sm font-medium text-red-300 shadow-lg hover:bg-red-500/10"
-    >
-      Logout
-    </button>
+    <header className="fixed left-0 right-0 top-0 z-30 flex h-20 items-center justify-end border-b border-slate-800 bg-slate-950/95 px-6 backdrop-blur lg:left-72">
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="rounded-xl border border-red-500/40 px-5 py-2.5 text-sm font-medium text-red-300 transition hover:bg-red-500/10"
+      >
+        Logout
+      </button>
+    </header>
   );
 }
