@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import LogoutButton from "@/components/LogoutButton";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
@@ -80,6 +81,10 @@ export default function AppSidebar() {
           })}
         </div>
       </nav>
+
+      <div className="border-t border-slate-800 p-4">
+        <LogoutButton />
+      </div>
     </aside>
   );
 }

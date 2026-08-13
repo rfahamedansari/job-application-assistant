@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import AppSidebar from "@/components/AppSidebar";
-import TopLogout from "@/components/TopLogout";
 import RegisterServiceWorker from "./register-sw";
 
 import "./globals.css";
@@ -37,8 +36,6 @@ export default function RootLayout({
         <RegisterServiceWorker />
 
         <AppSidebar />
-
-        <TopLogout />
 
         <main className="min-h-screen lg:pl-72">
           {children}
