@@ -21,6 +21,11 @@ type Application = {
   notes: string | null;
 };
 
+type EmailDraft = {
+  subject: string;
+  body: string;
+};
+
 const statusOptions = [
   "Applied",
   "Recruiter Contacted",
@@ -34,6 +39,12 @@ export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [emailDrafts, setEmailDrafts] = useState<
+    Record<string, EmailDraft>
+  >({});
+  const [openEmailDraftId, setOpenEmailDraftId] = useState<
+    string | null
+  >(null);
 
   const loadApplications = useCallback(async () => {
     setIsLoading(true);
@@ -167,6 +178,47 @@ export default function ApplicationsPage() {
     );
 
     setMessage("Application removed.");
+  }
+
+  function prepareEmailDraft(application: Application) {
+    setEmailDrafts((current) => ({
+      ...current,
+      [application.id]:
+        current[application.id] ?? {
+          subject: `Application for ${application.role} – ${application.company}`,
+          body: `Dear Hiring Manager,\n\nI am writing to express my interest in the ${application.role} position at ${application.company}. My background in project management, service delivery, stakeholder coordination, and technology operations aligns well with this opportunity.\n\nPlease find my resume attached for your review. I would welcome the opportunity to discuss how my experience can contribute to your team.\n\nThank you for your time and consideration.\n\nKind regards,`,
+        },
+    }));
+
+    setOpenEmailDraftId(application.id);
+  }
+
+  function updateEmailDraft(
+    applicationId: string,
+    field: keyof EmailDraft,
+    value: string
+  ) {
+    setEmailDrafts((current) => ({
+      ...current,
+      [applicationId]: {
+        ...current[applicationId],
+        [field]: value,
+      },
+    }));
+  }
+
+  async function copyEmailDraft(applicationId: string) {
+    const draft = emailDrafts[applicationId];
+
+    if (!draft) return;
+
+    await navigator.clipboard.writeText(
+      `Subject: ${draft.subject}\n\n${draft.body}`
+    );
+
+    setMessage(
+      "Application email copied. Review the recipient, resume attachment, and content before sending."
+    );
   }
 
   function formatDate(value: string | null) {
@@ -388,6 +440,15 @@ export default function ApplicationsPage() {
                               Open Job
                             </a>
                           )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              prepareEmailDraft(application)
+                            }
+                            className="rounded-lg border border-emerald-500/50 px-4 py-2 font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                          >
+                            Prepare Email
+                          </button>
  <Link
     href={`/interview-prep?applicationId=${application.id}`}
     className="rounded-lg border border-cyan-500 px-4 py-2 font-semibold text-cyan-300 hover:bg-cyan-500/10"
@@ -407,6 +468,72 @@ export default function ApplicationsPage() {
                           </button>
                         </div>
                       </div>
+
+                      {openEmailDraftId === application.id &&
+                        emailDrafts[application.id] && (
+                          <section className="mt-6 rounded-xl border border-emerald-500/30 bg-slate-950 p-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <h4 className="font-semibold text-emerald-300">
+                                  Application Email Draft
+                                </h4>
+                                <p className="mt-1 text-sm text-slate-400">
+                                  Review and edit before copying. This draft is never sent automatically.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenEmailDraftId(null)
+                                }
+                                className="text-sm text-slate-400 hover:text-white"
+                              >
+                                Close
+                              </button>
+                            </div>
+
+                            <label className="mt-5 block text-sm font-medium">
+                              Subject
+                            </label>
+                            <input
+                              value={emailDrafts[application.id].subject}
+                              onChange={(event) =>
+                                updateEmailDraft(
+                                  application.id,
+                                  "subject",
+                                  event.target.value
+                                )
+                              }
+                              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+                            />
+
+                            <label className="mt-5 block text-sm font-medium">
+                              Email Body
+                            </label>
+                            <textarea
+                              value={emailDrafts[application.id].body}
+                              onChange={(event) =>
+                                updateEmailDraft(
+                                  application.id,
+                                  "body",
+                                  event.target.value
+                                )
+                              }
+                              rows={12}
+                              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                copyEmailDraft(application.id)
+                              }
+                              className="mt-5 rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-950 hover:bg-emerald-400"
+                            >
+                              Copy Reviewed Email
+                            </button>
+                          </section>
+                        )}
                     </article>
                   ))}
                 </div>
