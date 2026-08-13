@@ -138,7 +138,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-10 text-slate-100">
+    <main className="fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950 px-4 py-10 text-slate-100">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <p className="text-sm font-semibold text-cyan-400">
