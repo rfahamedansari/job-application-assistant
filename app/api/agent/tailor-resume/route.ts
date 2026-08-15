@@ -96,7 +96,6 @@ export async function POST(request: NextRequest) {
       .from("jobs")
       .select("id, title, company, job_description")
       .eq("id", application.job_id)
-      .eq("user_id", user.id)
       .single();
 
     if (jobError || !job) {
