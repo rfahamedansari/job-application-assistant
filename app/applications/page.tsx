@@ -73,6 +73,9 @@ export default function ApplicationsPage() {
   const [approvedTailoring, setApprovedTailoring] = useState<
     Record<string, boolean>
   >({});
+  const [exportingResume, setExportingResume] = useState<
+    { applicationId: string; format: "docx" | "pdf" } | null
+  >(null);
 
   const loadApplications = useCallback(async () => {
     setIsLoading(true);
@@ -364,6 +367,80 @@ export default function ApplicationsPage() {
       setMessage(
         "Copy was blocked by the browser. Select the tailored resume text and press Ctrl+C."
       );
+    }
+  }
+
+  async function downloadTailoredResume(
+    application: Application,
+    format: "docx" | "pdf"
+  ) {
+    const result = tailoringResults[application.id];
+
+    if (!result || !approvedTailoring[application.id]) {
+      setMessage(
+        "Review the tailored resume and tick the approval checkbox before downloading."
+      );
+      return;
+    }
+
+    setExportingResume({ applicationId: application.id, format });
+    setMessage("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Please sign in again.");
+      }
+
+      const response = await fetch(
+        "/api/agent/export-tailored-resume",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            format,
+            resume_text: result.tailoring.tailored_resume,
+            role: application.role,
+            company: application.company,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorResult = await response.json();
+        throw new Error(errorResult?.error ?? "Resume export failed.");
+      }
+
+      const file = await response.blob();
+      const contentDisposition =
+        response.headers.get("content-disposition") ?? "";
+      const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/);
+      const fileName =
+        fileNameMatch?.[1] ?? `Tailored-Resume.${format}`;
+      const downloadUrl = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+
+      setMessage(
+        `${format === "docx" ? "Word" : "PDF"} resume downloaded. Review the final file before applying.`
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Resume export failed."
+      );
+    } finally {
+      setExportingResume(null);
     }
   }
 
@@ -776,14 +853,48 @@ export default function ApplicationsPage() {
                                 </span>
                               </label>
 
-                              <button
-                                type="button"
-                                disabled={!approvedTailoring[application.id]}
-                                onClick={() => copyTailoredResume(application.id)}
-                                className="rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Copy Approved Resume
-                              </button>
+                              <div className="flex flex-wrap gap-3">
+                                <button
+                                  type="button"
+                                  disabled={!approvedTailoring[application.id]}
+                                  onClick={() => copyTailoredResume(application.id)}
+                                  className="rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Copy Approved Resume
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    !approvedTailoring[application.id] ||
+                                    exportingResume?.applicationId === application.id
+                                  }
+                                  onClick={() =>
+                                    downloadTailoredResume(application, "docx")
+                                  }
+                                  className="rounded-lg border border-cyan-500 px-5 py-3 font-semibold text-cyan-200 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {exportingResume?.applicationId === application.id &&
+                                  exportingResume.format === "docx"
+                                    ? "Creating Word..."
+                                    : "Download Word"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    !approvedTailoring[application.id] ||
+                                    exportingResume?.applicationId === application.id
+                                  }
+                                  onClick={() =>
+                                    downloadTailoredResume(application, "pdf")
+                                  }
+                                  className="rounded-lg border border-emerald-500 px-5 py-3 font-semibold text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {exportingResume?.applicationId === application.id &&
+                                  exportingResume.format === "pdf"
+                                    ? "Creating PDF..."
+                                    : "Download PDF"}
+                                </button>
+                              </div>
                             </div>
                           ) : (
                             <p className="mt-5 text-sm text-slate-400">
