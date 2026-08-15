@@ -26,6 +26,23 @@ type EmailDraft = {
   body: string;
 };
 
+type TailoringResult = {
+  source_resume: {
+    id: string;
+    name: string;
+    category: string;
+  };
+  tailoring: {
+    ats_score: number;
+    summary: string;
+    matched_keywords: string[];
+    missing_keywords: string[];
+    recommended_changes: string[];
+    truth_check: string;
+    tailored_resume: string;
+  };
+};
+
 const statusOptions = [
   "Applied",
   "Recruiter Contacted",
@@ -45,6 +62,17 @@ export default function ApplicationsPage() {
   const [openEmailDraftId, setOpenEmailDraftId] = useState<
     string | null
   >(null);
+  const [tailoringResults, setTailoringResults] = useState<
+    Record<string, TailoringResult>
+  >({});
+  const [openTailoringId, setOpenTailoringId] = useState<
+    string | null
+  >(null);
+  const [tailoringApplicationId, setTailoringApplicationId] =
+    useState<string | null>(null);
+  const [approvedTailoring, setApprovedTailoring] = useState<
+    Record<string, boolean>
+  >({});
 
   const loadApplications = useCallback(async () => {
     setIsLoading(true);
@@ -240,6 +268,101 @@ export default function ApplicationsPage() {
     } catch {
       setMessage(
         "Copy was blocked by the browser. Select the subject and email text manually, then press Ctrl+C."
+      );
+    }
+  }
+
+  async function prepareTailoredResume(applicationId: string) {
+    setTailoringApplicationId(applicationId);
+    setMessage("");
+    setOpenTailoringId(applicationId);
+    setApprovedTailoring((current) => ({
+      ...current,
+      [applicationId]: false,
+    }));
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Please sign in again.");
+      }
+
+      const response = await fetch("/api/agent/tailor-resume", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ application_id: applicationId }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? "Resume tailoring failed.");
+      }
+
+      setTailoringResults((current) => ({
+        ...current,
+        [applicationId]: result as TailoringResult,
+      }));
+      setMessage(
+        "Tailored resume draft prepared. Review every section and approve it before copying."
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Resume tailoring failed."
+      );
+    } finally {
+      setTailoringApplicationId(null);
+    }
+  }
+
+  function updateTailoredResume(
+    applicationId: string,
+    value: string
+  ) {
+    setTailoringResults((current) => ({
+      ...current,
+      [applicationId]: {
+        ...current[applicationId],
+        tailoring: {
+          ...current[applicationId].tailoring,
+          tailored_resume: value,
+        },
+      },
+    }));
+    setApprovedTailoring((current) => ({
+      ...current,
+      [applicationId]: false,
+    }));
+  }
+
+  async function copyTailoredResume(applicationId: string) {
+    const result = tailoringResults[applicationId];
+
+    if (!result || !approvedTailoring[applicationId]) {
+      setMessage(
+        "Review the tailored resume and tick the approval checkbox before copying."
+      );
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        result.tailoring.tailored_resume
+      );
+      setMessage(
+        "Approved tailored resume copied. The original stored resume was not changed."
+      );
+    } catch {
+      setMessage(
+        "Copy was blocked by the browser. Select the tailored resume text and press Ctrl+C."
       );
     }
   }
@@ -465,6 +588,20 @@ export default function ApplicationsPage() {
                           )}
                           <button
                             type="button"
+                            disabled={
+                              tailoringApplicationId === application.id
+                            }
+                            onClick={() =>
+                              prepareTailoredResume(application.id)
+                            }
+                            className="rounded-lg border border-violet-500/50 px-4 py-2 font-semibold text-violet-300 hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {tailoringApplicationId === application.id
+                              ? "Tailoring..."
+                              : "Tailor Resume"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() =>
                               prepareEmailDraft(application)
                             }
@@ -491,6 +628,170 @@ export default function ApplicationsPage() {
                           </button>
                         </div>
                       </div>
+
+                      {openTailoringId === application.id && (
+                        <section className="mt-6 rounded-xl border border-violet-500/30 bg-slate-950 p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-violet-300">
+                                AI Resume Tailoring Review
+                              </h4>
+                              <p className="mt-1 text-sm text-slate-400">
+                                Review-only mode. Nothing is sent and your original resume is never replaced.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOpenTailoringId(null)}
+                              className="text-sm text-slate-400 hover:text-white"
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          {tailoringApplicationId === application.id &&
+                          !tailoringResults[application.id] ? (
+                            <div className="mt-5 rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-300">
+                              Comparing the saved job description with your parsed resume...
+                            </div>
+                          ) : tailoringResults[application.id] ? (
+                            <div className="mt-5 space-y-5">
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                                  <p className="text-sm text-slate-400">
+                                    Source resume
+                                  </p>
+                                  <p className="mt-1 font-semibold">
+                                    {tailoringResults[application.id].source_resume.name}
+                                  </p>
+                                  <p className="mt-1 text-sm text-slate-400">
+                                    {tailoringResults[application.id].source_resume.category}
+                                  </p>
+                                </div>
+                                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                                  <p className="text-sm text-slate-400">
+                                    Estimated ATS match
+                                  </p>
+                                  <p className="mt-1 text-3xl font-bold text-violet-300">
+                                    {tailoringResults[application.id].tailoring.ats_score}%
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div>
+                                <h5 className="font-medium">Analysis</h5>
+                                <p className="mt-2 text-sm leading-6 text-slate-300">
+                                  {tailoringResults[application.id].tailoring.summary}
+                                </p>
+                              </div>
+
+                              <div className="grid gap-4 lg:grid-cols-2">
+                                <div>
+                                  <h5 className="font-medium text-emerald-300">
+                                    Supported keywords
+                                  </h5>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {tailoringResults[application.id].tailoring.matched_keywords.map(
+                                      (keyword) => (
+                                        <span
+                                          key={keyword}
+                                          className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm text-emerald-200"
+                                        >
+                                          {keyword}
+                                        </span>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <h5 className="font-medium text-amber-300">
+                                    Gaps — not added
+                                  </h5>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {tailoringResults[application.id].tailoring.missing_keywords.map(
+                                      (keyword) => (
+                                        <span
+                                          key={keyword}
+                                          className="rounded-full bg-amber-500/10 px-3 py-1 text-sm text-amber-200"
+                                        >
+                                          {keyword}
+                                        </span>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div>
+                                <h5 className="font-medium">
+                                  Recommended changes
+                                </h5>
+                                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                                  {tailoringResults[application.id].tailoring.recommended_changes.map(
+                                    (change) => (
+                                      <li key={change}>{change}</li>
+                                    )
+                                  )}
+                                </ul>
+                              </div>
+
+                              <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm text-cyan-100">
+                                <span className="font-semibold">Truth check: </span>
+                                {tailoringResults[application.id].tailoring.truth_check}
+                              </div>
+
+                              <div>
+                                <label className="block font-medium">
+                                  Tailored Resume Draft
+                                </label>
+                                <textarea
+                                  value={tailoringResults[application.id].tailoring.tailored_resume}
+                                  onChange={(event) =>
+                                    updateTailoredResume(
+                                      application.id,
+                                      event.target.value
+                                    )
+                                  }
+                                  rows={24}
+                                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 font-mono text-sm leading-6"
+                                />
+                              </div>
+
+                              <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-200">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    approvedTailoring[application.id] ?? false
+                                  }
+                                  onChange={(event) =>
+                                    setApprovedTailoring((current) => ({
+                                      ...current,
+                                      [application.id]: event.target.checked,
+                                    }))
+                                  }
+                                  className="mt-1 h-4 w-4"
+                                />
+                                <span>
+                                  I reviewed this draft against my real experience and approve it for copying. I will verify it again before applying.
+                                </span>
+                              </label>
+
+                              <button
+                                type="button"
+                                disabled={!approvedTailoring[application.id]}
+                                onClick={() => copyTailoredResume(application.id)}
+                                className="rounded-lg bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Copy Approved Resume
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="mt-5 text-sm text-slate-400">
+                              Select Tailor Resume to prepare a review draft.
+                            </p>
+                          )}
+                        </section>
+                      )}
 
                       {openEmailDraftId === application.id &&
                         emailDrafts[application.id] && (
