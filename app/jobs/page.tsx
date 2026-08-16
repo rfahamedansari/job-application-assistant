@@ -124,6 +124,18 @@ type BestResumeResult = {
   selection_reason: string;
   rankings: BestResumeRanking[];
 };
+
+type CollectedTopJob = Job & {
+  external_id: string;
+  match: {
+    score: number;
+    level: string;
+    reasons: string[];
+    missingSkills: string[];
+    recommendedResumeId: string | null;
+    recommendedResumeName: string | null;
+  };
+};
 const sourceOptions = [
   "LinkedIn",
   "Indeed",
@@ -202,6 +214,10 @@ const [bestResumeLoadingJobId, setBestResumeLoadingJobId] =
 
 const [bestResumeResults, setBestResumeResults] =
   useState<Record<string, BestResumeResult>>({});
+
+  const [topCollectedJobs, setTopCollectedJobs] = useState<CollectedTopJob[]>([]);
+  const [isCollectingJobs, setIsCollectingJobs] = useState(false);
+  const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
 
   const loadJobs = useCallback(async () => {
     setIsLoading(true);
@@ -751,6 +767,45 @@ async function compareAllResumes(job: Job) {
   }
 }
 
+async function collectTopJobs() {
+  setMessage("");
+  setIsCollectingJobs(true);
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      setMessage("Please sign in again.");
+      setMessageType("error");
+      return;
+    }
+
+    const response = await fetch("/api/agent/collect-jobs", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setMessage(`Job collection failed: ${result.error ?? "Unknown error"}`);
+      setMessageType("error");
+      return;
+    }
+
+    setTopCollectedJobs(result.jobs ?? []);
+    setCollectionWarnings(result.warnings ?? []);
+    setMessage(
+      result.jobs?.length
+        ? `Collected ${result.collected_count} relevant vacancies and ranked your Top ${result.jobs.length}.`
+        : "No matching UAE or Saudi vacancies were returned today. Try again later or configure the optional job-source keys."
+    );
+    setMessageType(result.jobs?.length ? "success" : "info");
+  } catch (error) {
+    setMessage(`Job collection failed: ${error instanceof Error ? error.message : "Unexpected error"}`);
+    setMessageType("error");
+  } finally {
+    setIsCollectingJobs(false);
+  }
+}
+
   const filteredJobs = jobs.filter((job) => {
     const searchableText = [
       job.title,
@@ -836,6 +891,61 @@ async function compareAllResumes(job: Job) {
                 {message}
               </div>
             )}
+
+            <section className="mb-6 rounded-2xl border border-purple-500/30 bg-slate-900 p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-purple-300">Daily Vacancy Agent</p>
+                  <h3 className="mt-1 text-xl font-semibold">UAE + Saudi Top 10 Jobs</h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                    Collect permitted live vacancies, remove duplicates, and rank the best opportunities against your profile. Auto Apply is OFF and nothing is submitted.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={collectTopJobs}
+                  disabled={isCollectingJobs}
+                  className="rounded-lg bg-purple-500 px-5 py-3 font-semibold text-white hover:bg-purple-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isCollectingJobs ? "Collecting & Ranking..." : "Collect Top 10 Jobs"}
+                </button>
+              </div>
+
+              {collectionWarnings.length > 0 && (
+                <details className="mt-4 text-xs text-amber-200">
+                  <summary className="cursor-pointer">Source setup notices ({collectionWarnings.length})</summary>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {collectionWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {topCollectedJobs.length > 0 && (
+                <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                  {topCollectedJobs.map((job, index) => (
+                    <article key={job.external_id} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">#{index + 1} · {job.country}</p>
+                          <h4 className="mt-2 font-semibold">{job.title}</h4>
+                          <p className="mt-1 text-sm text-slate-300">{job.company}</p>
+                          <p className="mt-1 text-xs text-slate-500">{job.location || job.country} · {job.source}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-bold ${job.match.score >= 75 ? "bg-emerald-500/15 text-emerald-300" : job.match.score >= 50 ? "bg-amber-500/15 text-amber-200" : "bg-slate-800 text-slate-300"}`}>
+                          {job.match.score}%
+                        </span>
+                      </div>
+                      {job.match.reasons.length > 0 && (
+                        <p className="mt-3 text-xs leading-5 text-emerald-300">✓ {job.match.reasons.slice(0, 2).join(" · ")}</p>
+                      )}
+                      <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
+                        Review Original Job
+                      </a>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <section className="mb-6 rounded-2xl border border-cyan-500/30 bg-slate-900 p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
