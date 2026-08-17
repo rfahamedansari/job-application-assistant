@@ -172,15 +172,21 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"):
     const searchText = country === "United Arab Emirates"
       ? "project manager in Dubai, UAE"
       : "project manager in Riyadh, Saudi Arabia";
+    const countryCode = country === "United Arab Emirates" ? "ae" : "sa";
     const query = encodeURIComponent(searchText);
-    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=all`, {
+    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=all&country=${countryCode}&language=en`, {
       headers: {
         "Content-Type": "application/json",
         "x-rapidapi-key": apiKey,
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
       },
     });
-    const rows = Array.isArray(payload.data) ? payload.data : [];
+    const responseData = payload.data;
+    const rows = Array.isArray(responseData)
+      ? responseData
+      : responseData && typeof responseData === "object" && Array.isArray((responseData as Record<string, unknown>).jobs)
+        ? (responseData as Record<string, unknown>).jobs as unknown[]
+        : [];
     const jobs = rows.flatMap((row): CollectedJob[] => {
       if (!row || typeof row !== "object") return [];
       const item = row as Record<string, unknown>;
