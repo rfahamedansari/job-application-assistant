@@ -216,6 +216,9 @@ const [bestResumeResults, setBestResumeResults] =
   useState<Record<string, BestResumeResult>>({});
 
   const [topCollectedJobs, setTopCollectedJobs] = useState<CollectedTopJob[]>([]);
+  const [allCollectedJobs, setAllCollectedJobs] = useState<CollectedTopJob[]>([]);
+  const [jobSearchQuery, setJobSearchQuery] = useState("Project Manager");
+  const [showAllCollectedJobs, setShowAllCollectedJobs] = useState(false);
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
 
@@ -781,7 +784,11 @@ async function collectTopJobs() {
 
     const response = await fetch("/api/agent/collect-jobs", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: jobSearchQuery.trim() || "Project Manager" }),
     });
     const result = await response.json();
     if (!response.ok) {
@@ -791,10 +798,12 @@ async function collectTopJobs() {
     }
 
     setTopCollectedJobs(result.jobs ?? []);
+    setAllCollectedJobs(result.all_jobs ?? result.jobs ?? []);
+    setShowAllCollectedJobs(false);
     setCollectionWarnings(result.warnings ?? []);
     setMessage(
       result.jobs?.length
-        ? `Collected ${result.collected_count} relevant vacancies and ranked your Top ${result.jobs.length}.`
+        ? `Collected ${result.collected_count} vacancies for “${result.query}” and ranked your Top ${result.jobs.length}.`
         : "No matching UAE or Saudi vacancies were returned today. Try again later or configure the optional job-source keys."
     );
     setMessageType(result.jobs?.length ? "success" : "info");
@@ -896,19 +905,40 @@ async function collectTopJobs() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-purple-300">Daily Vacancy Agent</p>
-                  <h3 className="mt-1 text-xl font-semibold">UAE + Saudi Top 10 Jobs</h3>
+                  <h3 className="mt-1 text-xl font-semibold">Search UAE + Saudi Jobs</h3>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                    Collect permitted live vacancies, remove duplicates, and rank the best opportunities against your profile. Auto Apply is OFF and nothing is submitted.
+                    Enter any role, collect permitted live vacancies, remove duplicates, and rank the best opportunities against your profile. Auto Apply is OFF and nothing is submitted.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={collectTopJobs}
-                  disabled={isCollectingJobs}
-                  className="rounded-lg bg-purple-500 px-5 py-3 font-semibold text-white hover:bg-purple-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isCollectingJobs ? "Collecting & Ranking..." : "Collect Top 10 Jobs"}
-                </button>
+                <div className="w-full max-w-md space-y-2">
+                  <label htmlFor="job-search-query" className="block text-sm font-medium text-slate-200">
+                    Job title or role
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="job-search-query"
+                      value={jobSearchQuery}
+                      onChange={(event) => setJobSearchQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !isCollectingJobs) void collectTopJobs();
+                      }}
+                      maxLength={80}
+                      placeholder="Project Manager, Service Delivery, Telecom..."
+                      className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={collectTopJobs}
+                      disabled={isCollectingJobs || !jobSearchQuery.trim()}
+                      className="shrink-0 rounded-lg bg-purple-500 px-5 py-3 font-semibold text-white hover:bg-purple-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isCollectingJobs ? "Ranking..." : "Search & Rank"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Examples: Project Manager, Service Delivery Manager, Telecom Manager, Operations Manager, PMO, Cloud Service Manager.
+                  </p>
+                </div>
               </div>
 
               {collectionWarnings.length > 0 && (
@@ -921,8 +951,28 @@ async function collectTopJobs() {
               )}
 
               {topCollectedJobs.length > 0 && (
-                <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                  {topCollectedJobs.map((job, index) => (
+                <>
+                  <div className="mt-6 flex flex-wrap gap-2" role="group" aria-label="Collected job view">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllCollectedJobs(false)}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showAllCollectedJobs ? "bg-purple-500 text-white" : "border border-slate-700 text-slate-300"}`}
+                    >
+                      Top 10 Ranked ({topCollectedJobs.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllCollectedJobs(true)}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${showAllCollectedJobs ? "bg-cyan-500 text-slate-950" : "border border-slate-700 text-slate-300"}`}
+                    >
+                      All Jobs ({allCollectedJobs.length})
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-400">
+                    Rankings are profile-based suggestions. Use Review Original Job to verify the vacancy before applying.
+                  </p>
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  {(showAllCollectedJobs ? allCollectedJobs : topCollectedJobs).map((job, index) => (
                     <article key={job.external_id} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -944,6 +994,7 @@ async function collectTopJobs() {
                     </article>
                   ))}
                 </div>
+                </>
               )}
             </section>
 

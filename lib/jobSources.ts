@@ -54,9 +54,17 @@ function inferCountry(value: string): CollectedJob["country"] | null {
   return null;
 }
 
-function isRelevant(job: CollectedJob) {
+function normalizeQuery(value: string) {
+  return value.trim().replace(/\s+/g, " ").slice(0, 80) || "Project Manager";
+}
+
+function isRelevant(job: CollectedJob, roleQuery = "Project Manager") {
   const haystack = `${job.title} ${job.job_description}`.toLowerCase();
-  return TARGET_TERMS.some((term) => haystack.includes(term));
+  const normalizedQuery = normalizeQuery(roleQuery).toLowerCase();
+  const queryWords = normalizedQuery.split(" ").filter((word) => word.length > 2);
+  return haystack.includes(normalizedQuery)
+    || (queryWords.length > 0 && queryWords.every((word) => haystack.includes(word)))
+    || TARGET_TERMS.some((term) => haystack.includes(term));
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
@@ -93,7 +101,7 @@ async function collectRemotive(): Promise<SourceResult> {
         posted_at: text(item.publication_date) || null,
       }];
     });
-    return { jobs: jobs.filter(isRelevant) };
+    return { jobs: jobs.filter((job) => isRelevant(job)) };
   } catch (error) {
     return { jobs: [], warning: `Remotive: ${error instanceof Error ? error.message : "unavailable"}` };
   }
@@ -124,18 +132,18 @@ async function collectArbeitnow(): Promise<SourceResult> {
         posted_at: Number.isFinite(created) ? new Date(created * 1000).toISOString() : null,
       }];
     });
-    return { jobs: jobs.filter(isRelevant) };
+    return { jobs: jobs.filter((job) => isRelevant(job)) };
   } catch (error) {
     return { jobs: [], warning: `Arbeitnow: ${error instanceof Error ? error.message : "unavailable"}` };
   }
 }
 
-async function collectAdzuna(countryCode: "ae" | "sa"): Promise<SourceResult> {
+async function collectAdzuna(countryCode: "ae" | "sa", roleQuery: string): Promise<SourceResult> {
   const appId = process.env.ADZUNA_APP_ID;
   const appKey = process.env.ADZUNA_APP_KEY;
   if (!appId || !appKey) return { jobs: [], warning: "Adzuna: API keys not configured" };
   try {
-    const query = encodeURIComponent(TARGET_TERMS.slice(0, 6).join(" OR "));
+    const query = encodeURIComponent(normalizeQuery(roleQuery));
     const url = `https://api.adzuna.com/v1/api/jobs/${countryCode}/search/1?app_id=${encodeURIComponent(appId)}&app_key=${encodeURIComponent(appKey)}&results_per_page=50&what=${query}&sort_by=date`;
     const payload = await fetchJson(url);
     const rows = Array.isArray(payload.results) ? payload.results : [];
@@ -159,19 +167,19 @@ async function collectAdzuna(countryCode: "ae" | "sa"): Promise<SourceResult> {
         posted_at: text(item.created) || null,
       }];
     });
-    return { jobs: jobs.filter(isRelevant) };
+    return { jobs: jobs.filter((job) => isRelevant(job, roleQuery)) };
   } catch (error) {
     return { jobs: [], warning: `Adzuna ${countryCode.toUpperCase()}: ${error instanceof Error ? error.message : "unavailable"}` };
   }
 }
 
-async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"): Promise<SourceResult> {
+async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia", roleQuery: string): Promise<SourceResult> {
   const apiKey = process.env.JSEARCH_RAPIDAPI_KEY;
   if (!apiKey) return { jobs: [], warning: "JSearch: API key not configured" };
   try {
     const searchText = country === "United Arab Emirates"
-      ? "project manager in Dubai, UAE"
-      : "project manager in Riyadh, Saudi Arabia";
+      ? `${normalizeQuery(roleQuery)} in Dubai, UAE`
+      : `${normalizeQuery(roleQuery)} in Riyadh, Saudi Arabia`;
     const countryCode = country === "United Arab Emirates" ? "ae" : "sa";
     const query = encodeURIComponent(searchText);
     const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=all&country=${countryCode}&language=en`, {
@@ -211,16 +219,17 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"):
   }
 }
 
-export async function collectJobs() {
+export async function collectJobs(roleQuery = "Project Manager") {
+  const normalizedQuery = normalizeQuery(roleQuery);
   const results = await Promise.all([
     collectRemotive(),
     collectArbeitnow(),
-    collectAdzuna("ae"),
-    collectAdzuna("sa"),
+    collectAdzuna("ae", normalizedQuery),
+    collectAdzuna("sa", normalizedQuery),
   ]);
-  const uaeJobs = await collectJSearch("United Arab Emirates");
+  const uaeJobs = await collectJSearch("United Arab Emirates", normalizedQuery);
   await new Promise((resolve) => setTimeout(resolve, 1_100));
-  const saudiJobs = await collectJSearch("Saudi Arabia");
+  const saudiJobs = await collectJSearch("Saudi Arabia", normalizedQuery);
   results.push(uaeJobs, saudiJobs);
   const unique = new Map<string, CollectedJob>();
   for (const job of results.flatMap((result) => result.jobs)) {
