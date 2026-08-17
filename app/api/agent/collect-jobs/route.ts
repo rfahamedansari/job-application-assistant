@@ -20,10 +20,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing authentication token." }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => ({})) as { query?: unknown };
+    const body = await request.json().catch(() => ({})) as { query?: unknown; pages?: unknown };
     const query = typeof body.query === "string"
       ? body.query.trim().replace(/\s+/g, " ").slice(0, 80) || "Project Manager"
       : "Project Manager";
+    const requestedPages = typeof body.pages === "number" ? body.pages : 3;
+    const pages = Math.min(3, Math.max(1, Math.trunc(requestedPages) || 3));
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: authHeader } },
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
     const [{ data: profile }, { data: resumes }, collected] = await Promise.all([
       supabase.from("profiles").select("target_categories,target_roles,preferred_countries,preferred_cities,skills,include_keywords,exclude_keywords,experience_years").eq("id", user.id).maybeSingle(),
       supabase.from("resumes").select("id,name,category").eq("user_id", user.id).order("is_primary", { ascending: false }),
-      collectJobs(query),
+      collectJobs(query, pages),
     ]);
 
     const fallbackProfile = {
@@ -75,6 +77,8 @@ export async function POST(request: NextRequest) {
       all_jobs: allRanked,
       collected_count: allRanked.length,
       query,
+      pages,
+      requested_job_limit: pages * 20,
       countries: ["United Arab Emirates", "Saudi Arabia"],
       warnings: collected.warnings,
       auto_apply_enabled: false,

@@ -173,7 +173,11 @@ async function collectAdzuna(countryCode: "ae" | "sa", roleQuery: string): Promi
   }
 }
 
-async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia", roleQuery: string): Promise<SourceResult> {
+async function collectJSearch(
+  country: "United Arab Emirates" | "Saudi Arabia",
+  roleQuery: string,
+  pageCount: number,
+): Promise<SourceResult> {
   const apiKey = process.env.JSEARCH_RAPIDAPI_KEY;
   if (!apiKey) return { jobs: [], warning: "JSearch: API key not configured" };
   try {
@@ -182,7 +186,7 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia", 
       : `${normalizeQuery(roleQuery)} in Riyadh, Saudi Arabia`;
     const countryCode = country === "United Arab Emirates" ? "ae" : "sa";
     const query = encodeURIComponent(searchText);
-    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=all&country=${countryCode}&language=en`, {
+    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=${pageCount}&date_posted=all&country=${countryCode}&language=en`, {
       headers: {
         "Content-Type": "application/json",
         "x-rapidapi-key": apiKey,
@@ -219,17 +223,18 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia", 
   }
 }
 
-export async function collectJobs(roleQuery = "Project Manager") {
+export async function collectJobs(roleQuery = "Project Manager", requestedPages = 3) {
   const normalizedQuery = normalizeQuery(roleQuery);
+  const pageCount = Math.min(3, Math.max(1, Math.trunc(requestedPages) || 3));
   const results = await Promise.all([
     collectRemotive(),
     collectArbeitnow(),
     collectAdzuna("ae", normalizedQuery),
     collectAdzuna("sa", normalizedQuery),
   ]);
-  const uaeJobs = await collectJSearch("United Arab Emirates", normalizedQuery);
+  const uaeJobs = await collectJSearch("United Arab Emirates", normalizedQuery, pageCount);
   await new Promise((resolve) => setTimeout(resolve, 1_100));
-  const saudiJobs = await collectJSearch("Saudi Arabia", normalizedQuery);
+  const saudiJobs = await collectJSearch("Saudi Arabia", normalizedQuery, pageCount);
   results.push(uaeJobs, saudiJobs);
   const unique = new Map<string, CollectedJob>();
   for (const job of results.flatMap((result) => result.jobs)) {

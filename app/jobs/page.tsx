@@ -218,6 +218,7 @@ const [bestResumeResults, setBestResumeResults] =
   const [topCollectedJobs, setTopCollectedJobs] = useState<CollectedTopJob[]>([]);
   const [allCollectedJobs, setAllCollectedJobs] = useState<CollectedTopJob[]>([]);
   const [jobSearchQuery, setJobSearchQuery] = useState("Project Manager");
+  const [jobSearchPages, setJobSearchPages] = useState(3);
   const [showAllCollectedJobs, setShowAllCollectedJobs] = useState(false);
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
@@ -788,7 +789,10 @@ async function collectTopJobs() {
         Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ query: jobSearchQuery.trim() || "Project Manager" }),
+      body: JSON.stringify({
+        query: jobSearchQuery.trim() || "Project Manager",
+        pages: jobSearchPages,
+      }),
     });
     const result = await response.json();
     if (!response.ok) {
@@ -914,7 +918,7 @@ async function collectTopJobs() {
                   <label htmlFor="job-search-query" className="block text-sm font-medium text-slate-200">
                     Job title or role
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <input
                       id="job-search-query"
                       value={jobSearchQuery}
@@ -926,6 +930,16 @@ async function collectTopJobs() {
                       placeholder="Project Manager, Service Delivery, Telecom..."
                       className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
                     />
+                    <select
+                      value={jobSearchPages}
+                      onChange={(event) => setJobSearchPages(Number(event.target.value))}
+                      aria-label="Maximum jobs to collect"
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-white"
+                    >
+                      <option value={1}>Up to 20 jobs</option>
+                      <option value={2}>Up to 40 jobs</option>
+                      <option value={3}>Up to 60 jobs</option>
+                    </select>
                     <button
                       type="button"
                       onClick={collectTopJobs}
@@ -937,6 +951,9 @@ async function collectTopJobs() {
                   </div>
                   <p className="text-xs text-slate-500">
                     Examples: Project Manager, Service Delivery Manager, Telecom Manager, Operations Manager, PMO, Cloud Service Manager.
+                  </p>
+                  <p className="text-xs text-amber-200">
+                    JSearch uses approximately 2 API credits per page level selected (one UAE request and one Saudi request).
                   </p>
                 </div>
               </div>
