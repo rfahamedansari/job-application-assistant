@@ -218,7 +218,9 @@ const [bestResumeResults, setBestResumeResults] =
   const [topCollectedJobs, setTopCollectedJobs] = useState<CollectedTopJob[]>([]);
   const [allCollectedJobs, setAllCollectedJobs] = useState<CollectedTopJob[]>([]);
   const [jobSearchQuery, setJobSearchQuery] = useState("Project Manager");
-  const [jobSearchPages, setJobSearchPages] = useState(3);
+  const [jobSearchUaePages, setJobSearchUaePages] = useState(6);
+  const [includeSaudiJobs, setIncludeSaudiJobs] = useState(false);
+  const [includeQatarJobs, setIncludeQatarJobs] = useState(false);
   const [showAllCollectedJobs, setShowAllCollectedJobs] = useState(false);
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
@@ -791,7 +793,9 @@ async function collectTopJobs() {
       },
       body: JSON.stringify({
         query: jobSearchQuery.trim() || "Project Manager",
-        pages: jobSearchPages,
+        uae_pages: jobSearchUaePages,
+        include_saudi: includeSaudiJobs,
+        include_qatar: includeQatarJobs,
       }),
     });
     const result = await response.json();
@@ -931,14 +935,14 @@ async function collectTopJobs() {
                       className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
                     />
                     <select
-                      value={jobSearchPages}
-                      onChange={(event) => setJobSearchPages(Number(event.target.value))}
-                      aria-label="Maximum jobs to collect"
+                      value={jobSearchUaePages}
+                      onChange={(event) => setJobSearchUaePages(Number(event.target.value))}
+                      aria-label="Maximum UAE jobs to collect"
                       className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 text-white"
                     >
-                      <option value={1}>Up to 20 jobs</option>
-                      <option value={2}>Up to 40 jobs</option>
-                      <option value={3}>Up to 60 jobs</option>
+                      <option value={2}>Up to 20 UAE jobs</option>
+                      <option value={4}>Up to 40 UAE jobs</option>
+                      <option value={6}>Up to 60 UAE jobs</option>
                     </select>
                     <button
                       type="button"
@@ -952,8 +956,29 @@ async function collectTopJobs() {
                   <p className="text-xs text-slate-500">
                     Examples: Project Manager, Service Delivery Manager, Telecom Manager, Operations Manager, PMO, Cloud Service Manager.
                   </p>
+                  <div className="flex flex-wrap gap-4 text-sm text-slate-300">
+                    <span className="font-medium text-emerald-300">UAE priority: always searched first</span>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={includeSaudiJobs}
+                        onChange={(event) => setIncludeSaudiJobs(event.target.checked)}
+                        className="h-4 w-4 accent-purple-500"
+                      />
+                      Add Saudi Arabia (up to 10 jobs)
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={includeQatarJobs}
+                        onChange={(event) => setIncludeQatarJobs(event.target.checked)}
+                        className="h-4 w-4 accent-purple-500"
+                      />
+                      Add Qatar (up to 10 jobs)
+                    </label>
+                  </div>
                   <p className="text-xs text-amber-200">
-                    JSearch uses approximately 2 API credits per page level selected (one UAE request and one Saudi request).
+                    UAE uses the selected JSearch pages first. Each optional country uses one additional API credit and runs afterward.
                   </p>
                 </div>
               </div>
