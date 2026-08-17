@@ -169,8 +169,11 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"):
   const apiKey = process.env.JSEARCH_RAPIDAPI_KEY;
   if (!apiKey) return { jobs: [], warning: "JSearch: API key not configured" };
   try {
-    const query = encodeURIComponent(`project manager OR service delivery manager in ${country}`);
-    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=month`, {
+    const searchText = country === "United Arab Emirates"
+      ? "project manager in Dubai, UAE"
+      : "project manager in Riyadh, Saudi Arabia";
+    const query = encodeURIComponent(searchText);
+    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=all`, {
       headers: {
         "Content-Type": "application/json",
         "x-rapidapi-key": apiKey,
@@ -196,7 +199,7 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"):
         posted_at: text(item.job_posted_at_datetime_utc) || null,
       }];
     });
-    return { jobs: jobs.filter(isRelevant) };
+    return { jobs };
   } catch (error) {
     return { jobs: [], warning: `JSearch ${country}: ${error instanceof Error ? error.message : "unavailable"}` };
   }
