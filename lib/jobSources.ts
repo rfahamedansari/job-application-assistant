@@ -170,9 +170,12 @@ async function collectJSearch(country: "United Arab Emirates" | "Saudi Arabia"):
   if (!apiKey) return { jobs: [], warning: "JSearch: API key not configured" };
   try {
     const query = encodeURIComponent(`project manager OR service delivery manager in ${country}`);
-    const countryCode = country === "United Arab Emirates" ? "ae" : "sa";
-    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&page=1&num_pages=1&country=${countryCode}&date_posted=month`, {
-      headers: { "x-rapidapi-key": apiKey, "x-rapidapi-host": "jsearch.p.rapidapi.com" },
+    const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=1&date_posted=month`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-rapidapi-key": apiKey,
+        "x-rapidapi-host": "jsearch.p.rapidapi.com",
+      },
     });
     const rows = Array.isArray(payload.data) ? payload.data : [];
     const jobs = rows.flatMap((row): CollectedJob[] => {
