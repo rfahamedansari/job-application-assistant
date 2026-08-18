@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [updatingRegistration, setUpdatingRegistration] = useState(false);
 
   const request = useCallback(async (init?: RequestInit) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -75,18 +76,24 @@ export default function AdminPage() {
   }
 
   async function toggleRegistration() {
+    const nextValue = !registrationEnabled;
+    setUpdatingRegistration(true);
+    setMessage("");
     try {
-      await request({
+      const payload = await request({
         method: "PATCH",
         body: JSON.stringify({
           action: "registration",
-          registration_enabled: !registrationEnabled,
+          registration_enabled: nextValue,
         }),
       });
-      setRegistrationEnabled(!registrationEnabled);
-      setMessage(`Registration ${!registrationEnabled ? "enabled" : "disabled"}.`);
+      const confirmedValue = Boolean(payload.registration_enabled);
+      setRegistrationEnabled(confirmedValue);
+      setMessage(`Registration ${confirmedValue ? "enabled" : "disabled"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Update failed.");
+    } finally {
+      setUpdatingRegistration(false);
     }
   }
 
@@ -104,8 +111,14 @@ export default function AdminPage() {
             <h1 className="text-3xl font-bold">User Management</h1>
             <p className="mt-2 text-slate-400">Approve, disable and assign application roles.</p>
           </div>
-          <button onClick={toggleRegistration} className="rounded-lg border border-cyan-500 px-4 py-3 text-cyan-300">
-            Registration: {registrationEnabled ? "ON" : "OFF"}
+          <button
+            type="button"
+            onClick={() => { void toggleRegistration(); }}
+            disabled={updatingRegistration}
+            aria-pressed={registrationEnabled}
+            className="rounded-lg border border-cyan-500 px-4 py-3 text-cyan-300 disabled:cursor-wait disabled:opacity-60"
+          >
+            {updatingRegistration ? "Updating..." : `Registration: ${registrationEnabled ? "ON" : "OFF"}`}
           </button>
         </div>
 
