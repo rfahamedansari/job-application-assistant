@@ -14,6 +14,17 @@ function accessError(error: unknown) {
   return 500;
 }
 
+type AdminProfile = {
+  id: string;
+  full_name: string | null;
+  role: AccountRole;
+  account_status: AccountStatus;
+  approved_at: string | null;
+  approved_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const authorization = request.headers.get("authorization");
@@ -58,14 +69,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
-    const users = authData.users.map((user) => ({
-      id: user.id,
-      email: user.email ?? "",
-      created_at: user.created_at,
-      last_sign_in_at: user.last_sign_in_at,
-      ...profilesById.get(user.id),
-    }));
+    const profileRows = (profiles ?? []) as AdminProfile[];
+    const profilesById = new Map(
+      profileRows.map((profile): [string, AdminProfile] => [profile.id, profile])
+    );
+    const users = authData.users.map((user) => {
+      const profile = profilesById.get(user.id);
+
+      return {
+        id: user.id,
+        email: user.email ?? "",
+        created_at: user.created_at,
+        last_sign_in_at: user.last_sign_in_at,
+        ...(profile ?? {}),
+      };
+    });
 
     return NextResponse.json({
       users,
