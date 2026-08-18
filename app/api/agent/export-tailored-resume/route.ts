@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
 import {
   createResumeDocx,
   createResumePdf,
   makeResumeFileName,
 } from "@/lib/resumeExport";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 type ExportResumeRequest = {
   format?: "docx" | "pdf";
@@ -35,21 +35,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Invalid or expired session." },
-        { status: 401 }
-      );
+    try {
+      await requireActiveUser(authHeader);
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
     }
 
     const body = (await request.json()) as ExportResumeRequest;

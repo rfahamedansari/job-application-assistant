@@ -222,6 +222,7 @@ const [bestResumeResults, setBestResumeResults] =
   const [includeSaudiJobs, setIncludeSaudiJobs] = useState(false);
   const [includeQatarJobs, setIncludeQatarJobs] = useState(false);
   const [showAllCollectedJobs, setShowAllCollectedJobs] = useState(false);
+  const [showEmailCollectedJobs, setShowEmailCollectedJobs] = useState(false);
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
 
@@ -515,10 +516,19 @@ const [bestResumeResults, setBestResumeResults] =
     setIsProcessingJob(true);
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+
       const response = await fetch("/api/agent/process-job", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           raw_text: rawJobText.trim(),
@@ -610,9 +620,32 @@ const [bestResumeResults, setBestResumeResults] =
         return;
       }
 
-      setMessage(
-        "Processed job saved successfully. Your existing match engine will score it below."
-      );
+      if (processedJob.application_method === "email" && processedJob.contact_email && result.job?.id) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Your session has expired. Please sign in again.");
+        const { error: applicationError } = await supabase.from("applications").insert({
+          user_id: user.id,
+          job_id: result.job.id,
+          resume_id: null,
+          role: processedJob.title,
+          company: processedJob.company,
+          source: processedJob.source,
+          job_url: processedJob.job_url,
+          status: "Ready for Review",
+          // The current database schema requires this timestamp even before
+          // submission. Status remains "Ready for Review", so it is not
+          // counted or presented as an applied vacancy.
+          applied_at: new Date().toISOString(),
+        });
+        if (applicationError) {
+          throw new Error(`Job saved, but the email approval queue could not be created: ${applicationError.message}`);
+        }
+        setMessage("Email vacancy saved to Applications → Email Applications for resume and email approval.");
+      } else {
+        setMessage(
+          "Processed job saved successfully. Your existing match engine will score it below."
+        );
+      }
       setMessageType("success");
       setRawJobText("");
       setAiJobUrl("");
@@ -808,6 +841,7 @@ async function collectTopJobs() {
     setTopCollectedJobs(result.jobs ?? []);
     setAllCollectedJobs(result.all_jobs ?? result.jobs ?? []);
     setShowAllCollectedJobs(false);
+    setShowEmailCollectedJobs(false);
     setCollectionWarnings(result.warnings ?? []);
     setMessage(
       result.jobs?.length
@@ -821,6 +855,34 @@ async function collectTopJobs() {
   } finally {
     setIsCollectingJobs(false);
   }
+}
+
+function reviewCollectedEmailJob(job: CollectedTopJob) {
+  setProcessedJob({
+    title: job.title,
+    company: job.company,
+    location: job.location ?? "",
+    country: job.country ?? "",
+    category: job.category ?? (jobSearchQuery.trim() || "General"),
+    source: job.source,
+    job_url: job.job_url,
+    job_description: job.job_description ?? "",
+    employment_type: job.employment_type ?? "",
+    salary_text: job.salary_text ?? "",
+    posted_at: job.posted_at,
+    source_type: job.source_type === "recruiter_post" ? "recruiter_post" : "formal_job",
+    application_method: "email",
+    contact_email: job.contact_email ?? "",
+    recruiter_name: job.recruiter_name ?? "",
+    source_post_text: job.job_description ?? "",
+    agent_notes: "Automatically discovered email-application vacancy. Review all details before saving.",
+  });
+  setRawJobText(job.job_description ?? "");
+  setAiSource(job.source);
+  setAiJobUrl(job.job_url);
+  setMessage("Email vacancy loaded for review. Verify the recipient and job details, then save it.");
+  setMessageType("info");
+  window.setTimeout(() => document.getElementById("agentic-job-processor")?.scrollIntoView({ behavior: "smooth" }), 0);
 }
 
   const filteredJobs = jobs.filter((job) => {
@@ -997,24 +1059,39 @@ async function collectTopJobs() {
                   <div className="mt-6 flex flex-wrap gap-2" role="group" aria-label="Collected job view">
                     <button
                       type="button"
-                      onClick={() => setShowAllCollectedJobs(false)}
-                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showAllCollectedJobs ? "bg-purple-500 text-white" : "border border-slate-700 text-slate-300"}`}
+                      onClick={() => { setShowAllCollectedJobs(false); setShowEmailCollectedJobs(false); }}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showAllCollectedJobs && !showEmailCollectedJobs ? "bg-purple-500 text-white" : "border border-slate-700 text-slate-300"}`}
                     >
                       Top 10 Ranked ({topCollectedJobs.length})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowAllCollectedJobs(true)}
-                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${showAllCollectedJobs ? "bg-cyan-500 text-slate-950" : "border border-slate-700 text-slate-300"}`}
+                      onClick={() => { setShowAllCollectedJobs(true); setShowEmailCollectedJobs(false); }}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${showAllCollectedJobs && !showEmailCollectedJobs ? "bg-cyan-500 text-slate-950" : "border border-slate-700 text-slate-300"}`}
                     >
                       All Jobs ({allCollectedJobs.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowEmailCollectedJobs(true); setShowAllCollectedJobs(false); }}
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold ${showEmailCollectedJobs ? "bg-emerald-500 text-slate-950" : "border border-emerald-500/40 text-emerald-300"}`}
+                    >
+                      Email Apply ({allCollectedJobs.filter((job) => job.application_method === "email" && job.contact_email).length})
                     </button>
                   </div>
                   <p className="mt-3 text-xs text-slate-400">
                     Rankings are profile-based suggestions. Use Review Original Job to verify the vacancy before applying.
                   </p>
+                  {showEmailCollectedJobs && allCollectedJobs.every((job) => job.application_method !== "email" || !job.contact_email) && (
+                    <p className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm text-emerald-200">
+                      No email-application vacancies were exposed by today&apos;s provider results. You can still paste a recruiter post below for AI extraction.
+                    </p>
+                  )}
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  {(showAllCollectedJobs ? allCollectedJobs : topCollectedJobs).map((job, index) => (
+                  {(showEmailCollectedJobs
+                    ? allCollectedJobs.filter((job) => job.application_method === "email" && job.contact_email)
+                    : showAllCollectedJobs ? allCollectedJobs : topCollectedJobs
+                  ).map((job, index) => (
                     <article key={job.external_id} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -1033,6 +1110,15 @@ async function collectTopJobs() {
                       <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
                         Review Original Job
                       </a>
+                      {job.application_method === "email" && job.contact_email && (
+                        <button
+                          type="button"
+                          onClick={() => reviewCollectedEmailJob(job)}
+                          className="ml-2 mt-4 inline-flex rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                        >
+                          Review Email Vacancy
+                        </button>
+                      )}
                     </article>
                   ))}
                 </div>
@@ -1040,7 +1126,7 @@ async function collectTopJobs() {
               )}
             </section>
 
-            <section className="mb-6 rounded-2xl border border-cyan-500/30 bg-slate-900 p-6">
+            <section id="agentic-job-processor" className="mb-6 rounded-2xl border border-cyan-500/30 bg-slate-900 p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-cyan-400">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { requireActiveUser } from "@/lib/serverAuth";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -19,6 +20,17 @@ export async function POST(request: NextRequest) {
           error: "OPENAI_API_KEY is not configured.",
         },
         { status: 500 }
+      );
+    }
+
+    try {
+      await requireActiveUser(request.headers.get("authorization"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const status = message === "UNAUTHENTICATED" ? 401 : 403;
+      return NextResponse.json(
+        { error: status === 401 ? "Authentication required." : "Account approval required." },
+        { status }
       );
     }
 
