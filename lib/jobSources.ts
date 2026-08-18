@@ -10,6 +10,10 @@ export type CollectedJob = {
   employment_type: string | null;
   salary_text: string | null;
   posted_at: string | null;
+  source_type: "formal_job" | "recruiter_post";
+  application_method: "website" | "email" | "manual";
+  contact_email: string | null;
+  recruiter_name: string | null;
 };
 
 type SourceResult = {
@@ -41,6 +45,32 @@ function stripHtml(value: string) {
     .replace(/&amp;/gi, "&")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function extractContactEmail(...values: string[]) {
+  const combined = values.join(" ");
+  const matches = combined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+  const ignoredPrefixes = [
+    "noreply@",
+    "no-reply@",
+    "privacy@",
+    "support@",
+  ];
+  return matches.find((email) =>
+    !ignoredPrefixes.some((prefix) => email.toLowerCase().startsWith(prefix))
+  )?.toLowerCase() ?? null;
+}
+
+function applicationDetails(description: string, applyUrl = "") {
+  const contactEmail = extractContactEmail(description, applyUrl);
+  const asksForEmail = /(?:send|email|share|forward|submit)\s+(?:your\s+)?(?:cv|resume|profile|application)/i.test(description)
+    || /(?:cv|resume|application).{0,40}(?:to|at)\s+[A-Z0-9._%+-]+@/i.test(description);
+  return {
+    source_type: contactEmail && asksForEmail ? "recruiter_post" as const : "formal_job" as const,
+    application_method: contactEmail ? "email" as const : applyUrl ? "website" as const : "manual" as const,
+    contact_email: contactEmail,
+    recruiter_name: null,
+  };
 }
 
 function inferCountry(value: string): CollectedJob["country"] | null {
@@ -90,6 +120,8 @@ async function collectRemotive(): Promise<SourceResult> {
       const location = text(item.candidate_required_location);
       const country = inferCountry(location);
       if (!country) return [];
+      const description = stripHtml(text(item.description));
+      const applyUrl = text(item.url);
       return [{
         external_id: `remotive-${String(item.id ?? text(item.url))}`,
         title: text(item.title),
@@ -97,11 +129,12 @@ async function collectRemotive(): Promise<SourceResult> {
         location,
         country,
         source: "Remotive",
-        job_url: text(item.url),
-        job_description: stripHtml(text(item.description)),
+        job_url: applyUrl,
+        job_description: description,
         employment_type: text(item.job_type) || null,
         salary_text: text(item.salary) || null,
         posted_at: text(item.publication_date) || null,
+        ...applicationDetails(description, applyUrl),
       }];
     });
     return { jobs: jobs.filter((job) => isRelevant(job)) };
@@ -121,6 +154,8 @@ async function collectArbeitnow(): Promise<SourceResult> {
       const country = inferCountry(location);
       if (!country) return [];
       const created = Number(item.created_at);
+      const description = stripHtml(text(item.description));
+      const applyUrl = text(item.url);
       return [{
         external_id: `arbeitnow-${text(item.slug) || text(item.url)}`,
         title: text(item.title),
@@ -128,11 +163,12 @@ async function collectArbeitnow(): Promise<SourceResult> {
         location,
         country,
         source: "Arbeitnow",
-        job_url: text(item.url),
-        job_description: stripHtml(text(item.description)),
+        job_url: applyUrl,
+        job_description: description,
         employment_type: Array.isArray(item.job_types) ? item.job_types.map(String).join(", ") : null,
         salary_text: null,
         posted_at: Number.isFinite(created) ? new Date(created * 1000).toISOString() : null,
+        ...applicationDetails(description, applyUrl),
       }];
     });
     return { jobs: jobs.filter((job) => isRelevant(job)) };
@@ -156,6 +192,8 @@ async function collectAdzuna(countryCode: "ae" | "sa", roleQuery: string): Promi
       const company = item.company && typeof item.company === "object" ? text((item.company as Record<string, unknown>).display_name) : "";
       const locationObject = item.location && typeof item.location === "object" ? item.location as Record<string, unknown> : {};
       const location = text(locationObject.display_name);
+      const description = stripHtml(text(item.description));
+      const applyUrl = text(item.redirect_url);
       return [{
         external_id: `adzuna-${String(item.id ?? text(item.redirect_url))}`,
         title: text(item.title),
@@ -163,11 +201,12 @@ async function collectAdzuna(countryCode: "ae" | "sa", roleQuery: string): Promi
         location,
         country: countryCode === "ae" ? "United Arab Emirates" : "Saudi Arabia",
         source: "Adzuna",
-        job_url: text(item.redirect_url),
-        job_description: stripHtml(text(item.description)),
+        job_url: applyUrl,
+        job_description: description,
         employment_type: text(item.contract_time) || null,
         salary_text: item.salary_min ? `${String(item.salary_min)}${item.salary_max ? `–${String(item.salary_max)}` : ""}` : null,
         posted_at: text(item.created) || null,
+        ...applicationDetails(description, applyUrl),
       }];
     });
     return { jobs: jobs.filter((job) => isRelevant(job, roleQuery)) };
@@ -208,6 +247,8 @@ async function collectJSearch(
       if (!row || typeof row !== "object") return [];
       const item = row as Record<string, unknown>;
       const publisher = text(item.job_publisher);
+      const description = text(item.job_description);
+      const applyUrl = text(item.job_apply_link) || text(item.job_google_link);
       return [{
         external_id: `jsearch-${text(item.job_id) || text(item.job_apply_link)}`,
         title: text(item.job_title),
@@ -215,11 +256,12 @@ async function collectJSearch(
         location: [text(item.job_city), text(item.job_state)].filter(Boolean).join(", "),
         country,
         source: publisher ? `JSearch · ${publisher}` : "JSearch",
-        job_url: text(item.job_apply_link) || text(item.job_google_link),
-        job_description: text(item.job_description),
+        job_url: applyUrl,
+        job_description: description,
         employment_type: text(item.job_employment_type) || null,
         salary_text: item.job_min_salary ? `${String(item.job_min_salary)}${item.job_max_salary ? `–${String(item.job_max_salary)}` : ""}` : null,
         posted_at: text(item.job_posted_at_datetime_utc) || null,
+        ...applicationDetails(description, applyUrl),
       }];
     });
     return { jobs };
