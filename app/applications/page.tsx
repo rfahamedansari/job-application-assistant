@@ -15,7 +15,7 @@ type Application = {
   source: string | null;
   job_url: string | null;
   status: string;
-  applied_at: string;
+  applied_at: string | null;
   interview_at: string | null;
   follow_up_at: string | null;
   notes: string | null;
@@ -48,6 +48,7 @@ type TailoringResult = {
 };
 
 const statusOptions = [
+  "Ready for Review",
   "Applied",
   "Recruiter Contacted",
   "Interview",
