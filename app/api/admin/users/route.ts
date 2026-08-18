@@ -109,11 +109,21 @@ export async function PATCH(request: NextRequest) {
     if (!ownerClient) throw new Error("UNAUTHENTICATED");
 
     if (body.action === "registration") {
+      const requestedValue = Boolean(body.registration_enabled);
       const { error } = await ownerClient.rpc("owner_set_registration_enabled", {
-        new_registration_enabled: Boolean(body.registration_enabled),
+        new_registration_enabled: requestedValue,
       });
       if (error) throw error;
-      return NextResponse.json({ success: true });
+
+      const { data: confirmedValue, error: confirmationError } = await ownerClient.rpc(
+        "owner_get_registration_enabled"
+      );
+      if (confirmationError) throw confirmationError;
+
+      return NextResponse.json({
+        success: true,
+        registration_enabled: Boolean(confirmedValue),
+      });
     }
 
     if (
