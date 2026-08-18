@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         admin.auth.admin.listUsers({ page: 1, perPage: 200 }),
         admin
           .from("profiles")
-          .select("id,full_name,role,account_status,approved_at,updated_at"),
+          .select("*"),
         admin
           .from("registration_settings")
           .select("registration_enabled")
@@ -136,4 +136,3 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
-
