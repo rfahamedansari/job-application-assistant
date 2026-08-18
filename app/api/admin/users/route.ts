@@ -38,11 +38,7 @@ export async function GET(request: NextRequest) {
       await Promise.all([
         admin.auth.admin.listUsers({ page: 1, perPage: 200 }),
         ownerClient.rpc("owner_list_profiles"),
-        admin
-          .from("registration_settings")
-          .select("registration_enabled")
-          .eq("id", true)
-          .single(),
+        ownerClient.rpc("owner_get_registration_enabled"),
       ]);
 
     if (authError) {
@@ -87,7 +83,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       users,
-      registration_enabled: settings.registration_enabled,
+      registration_enabled: Boolean(settings),
     });
   } catch (error) {
     console.error("admin users GET error", error);
@@ -113,11 +109,8 @@ export async function PATCH(request: NextRequest) {
     if (!ownerClient) throw new Error("UNAUTHENTICATED");
 
     if (body.action === "registration") {
-      const { error } = await admin.from("registration_settings").upsert({
-        id: true,
-        registration_enabled: Boolean(body.registration_enabled),
-        updated_at: new Date().toISOString(),
-        updated_by: owner.user.id,
+      const { error } = await ownerClient.rpc("owner_set_registration_enabled", {
+        new_registration_enabled: Boolean(body.registration_enabled),
       });
       if (error) throw error;
       return NextResponse.json({ success: true });
