@@ -31,8 +31,28 @@ export async function GET(request: NextRequest) {
           .single(),
       ]);
 
-    if (authError || profileError || settingsError) {
-      throw authError ?? profileError ?? settingsError;
+    if (authError) {
+      console.error("admin users auth list error", authError);
+      return NextResponse.json(
+        { error: "User management could not be loaded (Auth Admin)." },
+        { status: 500 }
+      );
+    }
+
+    if (profileError) {
+      console.error("admin users profile list error", profileError);
+      return NextResponse.json(
+        { error: "User management could not be loaded (Profiles)." },
+        { status: 500 }
+      );
+    }
+
+    if (settingsError) {
+      console.error("admin users registration settings error", settingsError);
+      return NextResponse.json(
+        { error: "User management could not be loaded (Registration settings)." },
+        { status: 500 }
+      );
     }
 
     const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
