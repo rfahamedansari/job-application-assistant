@@ -632,7 +632,10 @@ const [bestResumeResults, setBestResumeResults] =
           source: processedJob.source,
           job_url: processedJob.job_url,
           status: "Ready for Review",
-          applied_at: null,
+          // The current database schema requires this timestamp even before
+          // submission. Status remains "Ready for Review", so it is not
+          // counted or presented as an applied vacancy.
+          applied_at: new Date().toISOString(),
         });
         if (applicationError) {
           throw new Error(`Job saved, but the email approval queue could not be created: ${applicationError.message}`);
