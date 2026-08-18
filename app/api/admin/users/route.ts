@@ -3,6 +3,7 @@ import {
   AccountRole,
   AccountStatus,
   createAdminClient,
+  createUserScopedClient,
   requireOwner,
 } from "@/lib/serverAuth";
 
@@ -15,15 +16,17 @@ function accessError(error: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireOwner(request.headers.get("authorization"));
+    const authorization = request.headers.get("authorization");
+    await requireOwner(authorization);
     const admin = createAdminClient();
+    const ownerClient = createUserScopedClient(authorization);
+
+    if (!ownerClient) throw new Error("UNAUTHENTICATED");
 
     const [{ data: authData, error: authError }, { data: profiles, error: profileError }, { data: settings, error: settingsError }] =
       await Promise.all([
         admin.auth.admin.listUsers({ page: 1, perPage: 200 }),
-        admin
-          .from("profiles")
-          .select("*"),
+        ownerClient.rpc("owner_list_profiles"),
         admin
           .from("registration_settings")
           .select("registration_enabled")
@@ -83,9 +86,13 @@ type UpdateRequest =
 
 export async function PATCH(request: NextRequest) {
   try {
-    const owner = await requireOwner(request.headers.get("authorization"));
+    const authorization = request.headers.get("authorization");
+    const owner = await requireOwner(authorization);
     const body = (await request.json()) as UpdateRequest;
     const admin = createAdminClient();
+    const ownerClient = createUserScopedClient(authorization);
+
+    if (!ownerClient) throw new Error("UNAUTHENTICATED");
 
     if (body.action === "registration") {
       const { error } = await admin.from("registration_settings").upsert({
@@ -114,17 +121,11 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const now = new Date().toISOString();
-    const { error } = await admin
-      .from("profiles")
-      .update({
-        role: body.role,
-        account_status: body.account_status,
-        approved_at: body.account_status === "active" ? now : null,
-        approved_by: body.account_status === "active" ? owner.user.id : null,
-        updated_at: now,
-      })
-      .eq("id", body.user_id);
+    const { error } = await ownerClient.rpc("owner_update_user_access", {
+      target_user_id: body.user_id,
+      new_role: body.role,
+      new_account_status: body.account_status,
+    });
 
     if (error) throw error;
     return NextResponse.json({ success: true });
