@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import mammoth from "mammoth";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 type ParseResumeRequest = {
   resume_id?: string;
@@ -41,16 +42,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Invalid or expired session." },
-        { status: 401 }
-      );
+    let user;
+    try {
+      ({ user } = await requireActiveUser(authHeader));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
     }
 
     const body = (await request.json()) as ParseResumeRequest;

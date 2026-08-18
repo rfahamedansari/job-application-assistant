@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { FormEvent, useEffect, useState } from "react";
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
@@ -11,6 +10,18 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [isCheckingRegistration, setIsCheckingRegistration] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/register")
+      .then(async (response) => {
+        const payload = await response.json();
+        setRegistrationEnabled(Boolean(payload.registration_enabled));
+      })
+      .catch(() => setRegistrationEnabled(false))
+      .finally(() => setIsCheckingRegistration(false));
+  }, []);
 
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -21,8 +32,8 @@ export default function RegisterPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setMessage("Password must contain at least 6 characters.");
+    if (password.length < 8) {
+      setMessage("Password must contain at least 8 characters.");
       return;
     }
 
@@ -33,26 +44,25 @@ export default function RegisterPage() {
 
     setIsLoading(true);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName.trim(),
-        },
-      },
+    const response = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+      }),
     });
+    const payload = await response.json();
 
     setIsLoading(false);
 
-    if (error) {
-      setMessage(error.message);
+    if (!response.ok) {
+      setMessage(payload.error ?? "Registration could not be completed.");
       return;
     }
 
-    setMessage(
-      "Registration successful. Please check your email and confirm your account."
-    );
+    setMessage(payload.message);
 
     setFullName("");
     setEmail("");
@@ -71,13 +81,19 @@ export default function RegisterPage() {
           <h1 className="mt-2 text-3xl font-bold">Create your account</h1>
 
           <p className="mt-2 text-sm text-slate-400">
-            Register to manage resumes, jobs, applications, and interviews.
+            Registration requires approval from the Career OS owner.
           </p>
         </div>
 
         {message && (
           <div className="mb-5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-200">
             {message}
+          </div>
+        )}
+
+        {!isCheckingRegistration && !registrationEnabled && (
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            New-user registration is currently closed. Contact the Career OS owner for access.
           </div>
         )}
 
@@ -127,7 +143,7 @@ export default function RegisterPage() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimum 6 characters"
+              placeholder="Minimum 8 characters"
               required
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-cyan-500"
             />
@@ -154,7 +170,7 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isCheckingRegistration || !registrationEnabled}
             className="w-full rounded-lg bg-cyan-500 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isLoading ? "Creating account..." : "Create account"}

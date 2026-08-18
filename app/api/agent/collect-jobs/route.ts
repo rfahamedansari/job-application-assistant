@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { calculateJobMatch } from "@/lib/jobMatch";
 import { collectJobs } from "@/lib/jobSources";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,9 +40,12 @@ export async function POST(request: NextRequest) {
       global: { headers: { Authorization: authHeader } },
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return NextResponse.json({ error: "Invalid or expired session." }, { status: 401 });
+    let user;
+    try {
+      ({ user } = await requireActiveUser(authHeader));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
     }
 
     const [{ data: profile }, { data: resumes }, collected] = await Promise.all([

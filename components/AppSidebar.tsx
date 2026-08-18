@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
@@ -22,6 +24,23 @@ const hiddenRoutes = [
 
 export default function AppSidebar() {
   const pathname = usePathname();
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadRole() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const response = await fetch("/api/account/access", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!response.ok) return;
+      const access = await response.json();
+      if (active) setIsOwner(access.role === "owner");
+    }
+    void loadRole();
+    return () => { active = false; };
+  }, []);
 
   const hideSidebar = hiddenRoutes.some(
     (route) =>
@@ -78,6 +97,18 @@ export default function AppSidebar() {
               </Link>
             );
           })}
+          {isOwner && (
+            <Link
+              href="/admin"
+              className={`block rounded-xl px-4 py-3 text-sm font-medium transition ${
+                isActive("/admin")
+                  ? "bg-cyan-500 text-slate-950"
+                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              Admin
+            </Link>
+          )}
         </div>
       </nav>
 
