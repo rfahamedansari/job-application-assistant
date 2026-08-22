@@ -64,13 +64,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: application, error: applicationError } =
-      await supabase
-        .from("applications")
-        .select("id, user_id, job_id, resume_id, role, company")
-        .eq("id", applicationId)
-        .eq("user_id", user.id)
-        .single();
+    // Do not use .single() here. Supabase returns the same coercion error for
+    // both zero rows and duplicate legacy rows, which hides the real problem
+    // from the review workflow. Limit the result and handle an empty array
+    // explicitly instead.
+    const applicationResult = await supabase
+      .from("applications")
+      .select("id, user_id, job_id, resume_id, role, company")
+      .eq("id", applicationId)
+      .eq("user_id", user.id)
+      .limit(1);
+
+    const application = applicationResult.data?.[0] ?? null;
+    const applicationError = applicationResult.error;
 
     if (applicationError || !application) {
       return NextResponse.json(
@@ -89,15 +95,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: job, error: jobError } = await supabase
+    const jobResult = await supabase
       .from("jobs")
       .select("id, title, company, job_description")
       .eq("id", application.job_id)
-      .single();
+      .limit(1);
+
+    const job = jobResult.data?.[0] ?? null;
+    const jobError = jobResult.error;
 
     if (jobError || !job) {
       return NextResponse.json(
-        { error: jobError?.message ?? "Linked job not found." },
+        {
+          error:
+            jobError?.message ??
+            "The linked job record is unavailable. Return to Daily Jobs, open the original vacancy, and save it for review again.",
+        },
         { status: 404 }
       );
     }
