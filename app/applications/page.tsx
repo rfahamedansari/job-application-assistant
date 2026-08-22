@@ -1124,9 +1124,21 @@ export default function ApplicationsPage() {
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-5 text-sm text-slate-400">
-                              Select Tailor Resume to prepare a review draft.
-                            </p>
+                            <div className="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                              <p className="text-sm text-amber-100">
+                                A reviewed tailored resume is required before email sending can be unlocked.
+                              </p>
+                              <button
+                                type="button"
+                                disabled={tailoringApplicationId === application.id}
+                                onClick={() => prepareTailoredResume(application.id)}
+                                className="mt-3 rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {tailoringApplicationId === application.id
+                                  ? "Generating Resume..."
+                                  : "Generate Tailored Resume"}
+                              </button>
+                            </div>
                           )}
                         </section>
                       )}
@@ -1218,6 +1230,21 @@ export default function ApplicationsPage() {
                                 I verified the recipient, subject and email body. I approve this email for the selected vacancy.
                               </span>
                             </label>
+
+                            <div className="mt-5 grid gap-2 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm sm:grid-cols-2">
+                              <span className={tailoringResults[application.id]?.tailoring.tailored_resume.trim() ? "text-emerald-300" : "text-amber-200"}>
+                                {tailoringResults[application.id]?.tailoring.tailored_resume.trim() ? "✓" : "○"} Tailored resume generated
+                              </span>
+                              <span className={approvedTailoring[application.id] ? "text-emerald-300" : "text-amber-200"}>
+                                {approvedTailoring[application.id] ? "✓" : "○"} Resume reviewed and approved
+                              </span>
+                              <span className={approvedEmails[application.id] ? "text-emerald-300" : "text-amber-200"}>
+                                {approvedEmails[application.id] ? "✓" : "○"} Email reviewed and approved
+                              </span>
+                              <span className={application.status === "Ready for Review" ? "text-emerald-300" : "text-amber-200"}>
+                                {application.status === "Ready for Review" ? "✓" : "○"} Status is Ready for Review
+                              </span>
+                            </div>
 
                             <div className="mt-5 flex flex-wrap gap-3">
                               <button
