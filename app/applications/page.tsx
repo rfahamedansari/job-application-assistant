@@ -15,13 +15,17 @@ type Application = {
   source: string | null;
   job_url: string | null;
   status: string;
-  applied_at: string;
+  applied_at: string | null;
   interview_at: string | null;
   follow_up_at: string | null;
   notes: string | null;
+  application_method?: string | null;
+  contact_email?: string | null;
+  recruiter_name?: string | null;
 };
 
 type EmailDraft = {
+  recipient: string;
   subject: string;
   body: string;
 };
@@ -44,6 +48,7 @@ type TailoringResult = {
 };
 
 const statusOptions = [
+  "Ready for Review",
   "Applied",
   "Recruiter Contacted",
   "Interview",
@@ -56,8 +61,13 @@ export default function ApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [showEmailApplicationsOnly, setShowEmailApplicationsOnly] =
+    useState(false);
   const [emailDrafts, setEmailDrafts] = useState<
     Record<string, EmailDraft>
+  >({});
+  const [approvedEmails, setApprovedEmails] = useState<
+    Record<string, boolean>
   >({});
   const [openEmailDraftId, setOpenEmailDraftId] = useState<
     string | null
@@ -75,6 +85,9 @@ export default function ApplicationsPage() {
   >({});
   const [exportingResume, setExportingResume] = useState<
     { applicationId: string; format: "docx" | "pdf" } | null
+  >(null);
+  const [sendingApplicationId, setSendingApplicationId] = useState<
+    string | null
   >(null);
 
   const loadApplications = useCallback(async () => {
@@ -104,7 +117,39 @@ export default function ApplicationsPage() {
       return;
     }
 
-    setApplications((data ?? []) as Application[]);
+    const loadedApplications = (data ?? []) as Application[];
+    const jobIds = loadedApplications
+      .map((application) => application.job_id)
+      .filter((jobId): jobId is string => Boolean(jobId));
+
+    let jobDetails = new Map<
+      string,
+      {
+        application_method: string | null;
+        contact_email: string | null;
+        recruiter_name: string | null;
+      }
+    >();
+
+    if (jobIds.length > 0) {
+      const { data: jobsData } = await supabase
+        .from("jobs")
+        .select("id, application_method, contact_email, recruiter_name")
+        .in("id", jobIds);
+
+      jobDetails = new Map(
+        (jobsData ?? []).map((job) => [job.id, job])
+      );
+    }
+
+    setApplications(
+      loadedApplications.map((application) => ({
+        ...application,
+        ...(application.job_id
+          ? jobDetails.get(application.job_id)
+          : undefined),
+      }))
+    );
     setIsLoading(false);
   }, []);
 
@@ -216,12 +261,23 @@ export default function ApplicationsPage() {
       ...current,
       [application.id]:
         current[application.id] ?? {
+          recipient: application.contact_email ?? "",
           subject: `Application for ${application.role} – ${application.company}`,
           body: `Dear Hiring Manager,\n\nI am writing to express my interest in the ${application.role} position at ${application.company}. My background in project management, service delivery, stakeholder coordination, and technology operations aligns well with this opportunity.\n\nPlease find my resume attached for your review. I would welcome the opportunity to discuss how my experience can contribute to your team.\n\nThank you for your time and consideration.\n\nKind regards,`,
         },
     }));
 
+    setApprovedEmails((current) => ({
+      ...current,
+      [application.id]: false,
+    }));
+
     setOpenEmailDraftId(application.id);
+  }
+
+  async function prepareApprovalPackage(application: Application) {
+    prepareEmailDraft(application);
+    await prepareTailoredResume(application.id);
   }
 
   function updateEmailDraft(
@@ -236,6 +292,113 @@ export default function ApplicationsPage() {
         [field]: value,
       },
     }));
+    setApprovedEmails((current) => ({
+      ...current,
+      [applicationId]: false,
+    }));
+  }
+
+  function openApprovedEmail(applicationId: string) {
+    const draft = emailDrafts[applicationId];
+
+    if (!draft?.recipient.trim()) {
+      setMessage("Add and verify the recruiter email address first.");
+      return;
+    }
+
+    if (!approvedTailoring[applicationId] || !approvedEmails[applicationId]) {
+      setMessage("Approve both the tailored resume and email before continuing.");
+      return;
+    }
+
+    const href = `mailto:${encodeURIComponent(draft.recipient.trim())}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+    window.location.href = href;
+    setMessage(
+      "Approved email opened in your mail app. Attach the downloaded approved resume and verify everything before sending."
+    );
+  }
+
+  async function sendApprovedEmail(application: Application) {
+    const draft = emailDrafts[application.id];
+    const tailoring = tailoringResults[application.id];
+
+    if (!draft?.recipient.trim()) {
+      setMessage("Add and verify the recruiter email address first.");
+      return;
+    }
+
+    if (!approvedEmails[application.id] || !approvedTailoring[application.id]) {
+      setMessage("Approve both the tailored resume and email before sending.");
+      return;
+    }
+
+    if (!tailoring?.tailoring.tailored_resume.trim()) {
+      setMessage("Prepare and approve the tailored resume before sending.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Send the approved application to ${draft.recipient.trim()} with the tailored PDF resume attached?`
+    );
+
+    if (!confirmed) return;
+
+    setSendingApplicationId(application.id);
+    setMessage("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Please sign in again.");
+      }
+
+      const response = await fetch("/api/agent/send-approved-application", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          application_id: application.id,
+          recipient: draft.recipient.trim(),
+          subject: draft.subject.trim(),
+          email_body: draft.body.trim(),
+          resume_text: tailoring.tailoring.tailored_resume,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? "Approved email could not be sent.");
+      }
+
+      setApplications((current) =>
+        current.map((item) =>
+          item.id === application.id
+            ? { ...item, status: "Applied", applied_at: result.applied_at }
+            : item
+        )
+      );
+      setApprovedEmails((current) => ({
+        ...current,
+        [application.id]: false,
+      }));
+      setMessage(
+        `Application sent to ${draft.recipient.trim()} with the approved PDF resume attached.`
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Approved email could not be sent."
+      );
+    } finally {
+      setSendingApplicationId(null);
+    }
   }
 
   async function copyEmailDraft(applicationId: string) {
@@ -466,6 +629,16 @@ export default function ApplicationsPage() {
     (item) => item.status === "Offer"
   ).length;
 
+  const emailApplicationCount = applications.filter(
+    (item) => item.application_method === "email" || item.contact_email
+  ).length;
+
+  const displayedApplications = showEmailApplicationsOnly
+    ? applications.filter(
+        (item) => item.application_method === "email" || item.contact_email
+      )
+    : applications;
+
   return (
     <AuthGuard>
       <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -483,6 +656,12 @@ export default function ApplicationsPage() {
               <p className="mt-2 text-slate-400">
                 Update application status, notes, interviews, and offers.
               </p>
+
+              {emailApplicationCount > 0 && (
+                <p className="mt-3 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-200">
+                  Email Applications queue: {emailApplicationCount}
+                </p>
+              )}
             </header>
 
             {message && (
@@ -530,6 +709,32 @@ export default function ApplicationsPage() {
             </section>
 
             <section className="mt-8">
+              {applications.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailApplicationsOnly(false)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                      !showEmailApplicationsOnly
+                        ? "bg-cyan-500 text-slate-950"
+                        : "border border-slate-700 text-slate-300"
+                    }`}
+                  >
+                    All Applications ({applications.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailApplicationsOnly(true)}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                      showEmailApplicationsOnly
+                        ? "bg-emerald-500 text-slate-950"
+                        : "border border-emerald-500/50 text-emerald-300"
+                    }`}
+                  >
+                    Email Applications ({emailApplicationCount})
+                  </button>
+                </div>
+              )}
               {isLoading ? (
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
                   Loading applications...
@@ -553,7 +758,7 @@ export default function ApplicationsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {applications.map((application) => (
+                  {displayedApplications.map((application) => (
                     <article
                       key={application.id}
                       className="rounded-2xl border border-slate-800 bg-slate-900 p-6"
@@ -576,11 +781,20 @@ export default function ApplicationsPage() {
                             )}
 
                             <span className="text-slate-400">
-                              Applied:{" "}
+                              {application.status === "Ready for Review"
+                                ? "Added for review: "
+                                : "Applied: "}
                               {formatDate(
                                 application.applied_at
                               )}
                             </span>
+
+                            {(application.application_method === "email" ||
+                              application.contact_email) && (
+                              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+                                Email application
+                              </span>
+                            )}
                           </div>
 
                           <div className="mt-5">
@@ -653,6 +867,19 @@ export default function ApplicationsPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-3">
+                          {(application.application_method === "email" ||
+                            application.contact_email) && (
+                            <button
+                              type="button"
+                              disabled={tailoringApplicationId === application.id}
+                              onClick={() => prepareApprovalPackage(application)}
+                              className="rounded-lg bg-emerald-500 px-4 py-2 font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {tailoringApplicationId === application.id
+                                ? "Preparing Package..."
+                                : "Prepare Approval Package"}
+                            </button>
+                          )}
                           {application.job_url && (
                             <a
                               href={application.job_url}
@@ -928,6 +1155,23 @@ export default function ApplicationsPage() {
                             </div>
 
                             <label className="mt-5 block text-sm font-medium">
+                              Recipient
+                            </label>
+                            <input
+                              type="email"
+                              value={emailDrafts[application.id].recipient}
+                              onChange={(event) =>
+                                updateEmailDraft(
+                                  application.id,
+                                  "recipient",
+                                  event.target.value
+                                )
+                              }
+                              placeholder="recruiter@company.com"
+                              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
+                            />
+
+                            <label className="mt-5 block text-sm font-medium">
                               Subject
                             </label>
                             <input
@@ -958,15 +1202,62 @@ export default function ApplicationsPage() {
                               className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3"
                             />
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                copyEmailDraft(application.id)
-                              }
-                              className="mt-5 rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-950 hover:bg-emerald-400"
-                            >
-                              Copy Reviewed Email
-                            </button>
+                            <label className="mt-5 flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={approvedEmails[application.id] ?? false}
+                                onChange={(event) =>
+                                  setApprovedEmails((current) => ({
+                                    ...current,
+                                    [application.id]: event.target.checked,
+                                  }))
+                                }
+                                className="mt-1 h-4 w-4"
+                              />
+                              <span>
+                                I verified the recipient, subject and email body. I approve this email for the selected vacancy.
+                              </span>
+                            </label>
+
+                            <div className="mt-5 flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() => copyEmailDraft(application.id)}
+                                className="rounded-lg border border-emerald-500 px-5 py-3 font-semibold text-emerald-200 hover:bg-emerald-500/10"
+                              >
+                                Copy Reviewed Email
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  !approvedEmails[application.id] ||
+                                  !approvedTailoring[application.id]
+                                }
+                                onClick={() => openApprovedEmail(application.id)}
+                                className="rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Open Approved Email
+                              </button>
+                              <button
+                                type="button"
+                                disabled={
+                                  !approvedEmails[application.id] ||
+                                  !approvedTailoring[application.id] ||
+                                  sendingApplicationId === application.id ||
+                                  application.status !== "Ready for Review"
+                                }
+                                onClick={() => sendApprovedEmail(application)}
+                                className="rounded-lg bg-cyan-400 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {sendingApplicationId === application.id
+                                  ? "Sending..."
+                                  : "Approve & Send Email"}
+                              </button>
+                            </div>
+
+                            <p className="mt-3 text-xs text-amber-200">
+                              Safety lock: automatic sending is OFF. Approve & Send requires both review checkboxes, asks for final confirmation, and attaches the approved PDF resume.
+                            </p>
                           </section>
                         )}
                     </article>
