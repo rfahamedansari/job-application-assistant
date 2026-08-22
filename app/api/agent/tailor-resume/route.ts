@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 type TailorResumeRequest = {
   application_id?: string;
@@ -45,16 +46,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        { error: "Invalid or expired session." },
-        { status: 401 }
-      );
+    let user;
+    try {
+      ({ user } = await requireActiveUser(authHeader));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
     }
 
     const body = (await request.json()) as TailorResumeRequest;
@@ -115,20 +112,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let resumeQuery = supabase
-      .from("resumes")
-      .select("id, name, category, resume_text, parsing_status, is_primary")
-      .eq("user_id", user.id)
-      .eq("parsing_status", "completed");
+    const resumeFields =
+      "id, name, category, resume_text, parsing_status, is_primary";
+    let resume = null;
+    let resumeError = null;
 
     if (application.resume_id) {
-      resumeQuery = resumeQuery.eq("id", application.resume_id);
-    } else {
-      resumeQuery = resumeQuery.order("is_primary", { ascending: false });
+      const selectedResumeResult = await supabase
+        .from("resumes")
+        .select(resumeFields)
+        .eq("user_id", user.id)
+        .eq("id", application.resume_id)
+        .eq("parsing_status", "completed")
+        .limit(1);
+
+      resume = selectedResumeResult.data?.[0] ?? null;
+      resumeError = selectedResumeResult.error;
     }
 
-    const { data: resumes, error: resumeError } = await resumeQuery.limit(1);
-    const resume = resumes?.[0];
+    // A saved application can reference an older or unparsed resume. In that
+    // case, use the user's primary parsed resume, then any parsed resume, so
+    // the approval workflow does not become permanently stuck.
+    if (!resume?.resume_text?.trim()) {
+      const fallbackResumeResult = await supabase
+        .from("resumes")
+        .select(resumeFields)
+        .eq("user_id", user.id)
+        .eq("parsing_status", "completed")
+        .order("is_primary", { ascending: false })
+        .limit(1);
+
+      resume = fallbackResumeResult.data?.[0] ?? null;
+      resumeError = fallbackResumeResult.error;
+    }
 
     if (resumeError || !resume?.resume_text?.trim()) {
       return NextResponse.json(

@@ -83,6 +83,9 @@ export default function ApplicationsPage() {
   const [approvedTailoring, setApprovedTailoring] = useState<
     Record<string, boolean>
   >({});
+  const [tailoringErrors, setTailoringErrors] = useState<
+    Record<string, string>
+  >({});
   const [exportingResume, setExportingResume] = useState<
     { applicationId: string; format: "docx" | "pdf" } | null
   >(null);
@@ -442,6 +445,12 @@ export default function ApplicationsPage() {
     setTailoringApplicationId(applicationId);
     setMessage("");
     setOpenTailoringId(applicationId);
+    setTailoringErrors((current) => ({ ...current, [applicationId]: "" }));
+    setTailoringResults((current) => {
+      const next = { ...current };
+      delete next[applicationId];
+      return next;
+    });
     setApprovedTailoring((current) => ({
       ...current,
       [applicationId]: false,
@@ -465,25 +474,53 @@ export default function ApplicationsPage() {
         body: JSON.stringify({ application_id: applicationId }),
       });
 
-      const result = await response.json();
+      const responseText = await response.text();
+      let result: Partial<TailoringResult> & { error?: string } = {};
+
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText) as Partial<TailoringResult> & {
+            error?: string;
+          };
+        } catch {
+          throw new Error(
+            `Resume tailoring returned an invalid response (HTTP ${response.status}). Please try again.`
+          );
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(result?.error ?? "Resume tailoring failed.");
+        throw new Error(
+          result.error ??
+            `Resume tailoring failed (HTTP ${response.status}). Please try again.`
+        );
+      }
+
+      if (
+        !result.source_resume?.id ||
+        !result.tailoring?.tailored_resume?.trim()
+      ) {
+        throw new Error(
+          "Resume tailoring completed without a usable draft. Please try again."
+        );
       }
 
       setTailoringResults((current) => ({
         ...current,
         [applicationId]: result as TailoringResult,
       }));
+      setTailoringErrors((current) => ({ ...current, [applicationId]: "" }));
       setMessage(
         "Tailored resume draft prepared. Review every section and approve it before copying."
       );
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Resume tailoring failed."
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : "Resume tailoring failed.";
+      setTailoringErrors((current) => ({
+        ...current,
+        [applicationId]: errorMessage,
+      }));
+      setMessage(errorMessage);
     } finally {
       setTailoringApplicationId(null);
     }
@@ -1124,10 +1161,23 @@ export default function ApplicationsPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                            <div
+                              className="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4"
+                              aria-live="polite"
+                            >
                               <p className="text-sm text-amber-100">
                                 A reviewed tailored resume is required before email sending can be unlocked.
                               </p>
+                              {tailoringErrors[application.id] && (
+                                <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">
+                                  <p className="font-semibold">
+                                    Tailored resume could not be generated
+                                  </p>
+                                  <p className="mt-1">
+                                    {tailoringErrors[application.id]}
+                                  </p>
+                                </div>
+                              )}
                               <button
                                 type="button"
                                 disabled={tailoringApplicationId === application.id}
@@ -1136,7 +1186,9 @@ export default function ApplicationsPage() {
                               >
                                 {tailoringApplicationId === application.id
                                   ? "Generating Resume..."
-                                  : "Generate Tailored Resume"}
+                                  : tailoringErrors[application.id]
+                                    ? "Try Tailoring Again"
+                                    : "Generate Tailored Resume"}
                               </button>
                             </div>
                           )}
