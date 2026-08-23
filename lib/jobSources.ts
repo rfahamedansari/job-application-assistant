@@ -198,7 +198,11 @@ async function collectJSearch(
         posted_at: text(item.job_posted_at_datetime_utc) || null,
       }];
     });
-    return { jobs };
+    const unlabeledCount = jobs.filter((job) => job.source === "JSearch").length;
+    const warning = unlabeledCount > 0 && unlabeledCount === jobs.length
+      ? `JSearch ${country}: none of the ${jobs.length} results reported a source site (likely direct employer/company-site postings for this search — this is real JSearch data, not a bug)`
+      : undefined;
+    return { jobs, warning };
   } catch (error) {
     return { jobs: [], warning: `JSearch ${country}: ${error instanceof Error ? error.message : "unavailable"}` };
   }
