@@ -190,14 +190,15 @@ Mandatory safeguards:
 - Return valid JSON only, with no markdown fences and no text before or after the JSON object.
 
 Length target for "tailored_resume" — these are hard limits, not suggestions:
-- Most recent / current role: maximum 6 bullets, each bullet no more than ~20 words (roughly one line at normal resume width). Do not write 2-3 line bullets — split the idea into a shorter sentence instead.
-- The next 1-2 most recent roles: maximum 3 bullets each, same ~20-word limit per bullet.
-- Any role beyond that, or any role clearly less relevant to the target job (e.g. a junior/unrelated role from early career): compress to the company/title/dates line plus at most ONE short line of context — no bullet list for these roles at all, unless a specific achievement there is directly relevant to this job.
-- CORE COMPETENCIES: exactly 9-12 short phrases, not more.
-- KEY ACHIEVEMENTS: only include this section if it adds genuinely distinct information not already covered by the experience bullets. If included, maximum 4 items.
-- TECHNICAL SKILLS: at most 4-5 category lines, each listing at most 6 items.
-- CERTIFICATIONS: include all genuine certifications from the source, one per line, but do not add commentary.
-- This is a hard constraint: the finished "tailored_resume" must fit on ONE page for most candidates. A second page is allowed only if, after applying every limit above, the candidate's genuinely relevant senior experience still does not fit — never produce more than two pages under any circumstances. If you are approaching the limit, cut or shorten older/less-relevant bullets first, not the summary or the most recent role.
+- Most recent / current role: maximum 5 bullets, each bullet no more than ~18 words (roughly one line at normal resume width). Do not write 2-3 line bullets — split the idea into a shorter sentence instead.
+- The next 1 most recent role: maximum 3 bullets, same ~18-word limit per bullet.
+- Any role beyond that, or any role clearly less relevant to the target job (e.g. a junior/unrelated role from early career, or anything more than ~8 years old unless the target job specifically requires that exact early experience): write ONLY the company/title/dates line. No additional line, no bullets — not even one. If the role adds nothing relevant at all, omit it from the tailored resume entirely rather than listing it with no detail.
+- CORE COMPETENCIES: exactly 8-10 short phrases, not more.
+- KEY ACHIEVEMENTS: only include this section if it states something genuinely NOT already covered by the experience bullets above it. If every achievement you would list is a restatement of something already in the experience bullets, omit this section entirely. If included, maximum 3 items.
+- TECHNICAL SKILLS: at most 4 category lines, each listing at most 6 items.
+- CERTIFICATIONS: list the certifications most relevant to this specific job first; if there are more than 6 genuine certifications, keep the 6 most relevant to the target role rather than listing all of them — this is a prioritization choice for length, not an invention or omission of truth.
+- COURSES COMPLETED: only include this section if it contains something not already named in Certifications. Never list the same credential (e.g. "CCNA") in both Certifications and Courses Completed — if it already appears in one, do not repeat it in the other.
+- This is a hard constraint: the finished "tailored_resume" must fit on ONE page for most candidates. A second page is allowed only if, after applying every limit above, the candidate's genuinely relevant senior experience still does not fit — never produce more than two pages under any circumstances. If you are approaching the limit, cut or shorten older/less-relevant content first, not the summary or the most recent role.
 - If you produce a two-page result, briefly note in "summary" why the length was necessary.
 
 Required plain-text structure for "tailored_resume" (this is a strict layout
