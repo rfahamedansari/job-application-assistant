@@ -65,11 +65,19 @@ export async function requireActiveUser(
     throw new Error("UNAUTHENTICATED");
   }
 
-  const { data: profile, error: profileError } = await supabase
+  // Do not use .single() here. PostgREST raises the same "cannot coerce"
+  // error for zero matching rows and for duplicate rows, which hides the
+  // real cause from the approval workflow. Use limit(1) and handle an
+  // empty result explicitly instead, matching the pattern already used in
+  // tailor-resume/route.ts.
+  const profileResult = await supabase
     .from("profiles")
     .select("id,full_name,role,account_status")
     .eq("id", user.id)
-    .single();
+    .limit(1);
+
+  const profile = profileResult.data?.[0] ?? null;
+  const profileError = profileResult.error;
 
   if (profileError || !profile) {
     throw new Error("ACCESS_PROFILE_MISSING");
