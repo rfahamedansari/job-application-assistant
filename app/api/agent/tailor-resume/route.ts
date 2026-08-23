@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 type TailorResumeRequest = {
@@ -9,13 +9,13 @@ type TailorResumeRequest = {
 
 export async function POST(request: NextRequest) {
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!openaiApiKey) {
+    if (!anthropicApiKey) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured." },
+        { error: "ANTHROPIC_API_KEY is not configured." },
         { status: 500 }
       );
     }
@@ -170,13 +170,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-    const response = await openai.responses.create({
-      model: "gpt-5-mini",
-      input: [
-        {
-          role: "system",
-          content: `
+    const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 8000,
+      system: `
 You are the Resume Tailoring Agent for Ahamed AI Career OS.
 
 Compare the supplied real resume with the supplied real job description and prepare a truthful ATS-friendly tailored resume draft.
@@ -189,7 +187,7 @@ Mandatory safeguards:
 - Improve wording, ordering, clarity, and relevant keyword emphasis only when supported by the source resume.
 - Preserve useful contact details and employment history from the source.
 - The ATS score is an analytical estimate, not a hiring guarantee.
-- Return valid JSON only, without markdown fences.
+- Return valid JSON only, with no markdown fences and no text before or after the JSON object.
 
 Required JSON format:
 {
@@ -201,8 +199,8 @@ Required JSON format:
   "truth_check": "",
   "tailored_resume": ""
 }
-          `.trim(),
-        },
+      `.trim(),
+      messages: [
         {
           role: "user",
           content: `
@@ -230,7 +228,11 @@ ${resume.resume_text.slice(0, 50000)}
       ],
     });
 
-    const outputText = response.output_text?.trim();
+    const outputText = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .trim();
 
     if (!outputText) {
       return NextResponse.json(
