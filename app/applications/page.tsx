@@ -146,12 +146,29 @@ export default function ApplicationsPage() {
     }
 
     setApplications(
-      loadedApplications.map((application) => ({
-        ...application,
-        ...(application.job_id
+      loadedApplications.map((application) => {
+        const jobInfo = application.job_id
           ? jobDetails.get(application.job_id)
-          : undefined),
-      }))
+          : undefined;
+
+        // Merge only the specific job fields we need. Spreading the whole
+        // jobInfo object here previously overwrote application.id with the
+        // job's id (both objects have an "id" column), which silently broke
+        // every feature that relies on the application's real id — Tailor
+        // Resume ("Application not found") and Delete (removed 0 rows from
+        // applications, so it reappeared after refresh) both trace back to
+        // this exact bug.
+        return {
+          ...application,
+          ...(jobInfo
+            ? {
+                application_method: jobInfo.application_method,
+                contact_email: jobInfo.contact_email,
+                recruiter_name: jobInfo.recruiter_name,
+              }
+            : undefined),
+        };
+      })
     );
     setIsLoading(false);
   }, []);
@@ -240,13 +257,40 @@ export default function ApplicationsPage() {
 
     if (!confirmed) return;
 
-    const { error } = await supabase
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setMessage("Please sign in again.");
+      return;
+    }
+
+    // Scope explicitly by user_id (defense in depth alongside RLS) and
+    // request .select() so we get back the rows that were actually
+    // deleted. Supabase/PostgREST does not raise an error when a DELETE
+    // RLS policy silently filters a row to zero matches — it reports
+    // success with nothing affected. Without checking the returned rows,
+    // the UI cannot tell "deleted" apart from "blocked by a missing
+    // policy", which is exactly what caused deleted applications to
+    // reappear after a refresh.
+    const { data: deletedRows, error } = await supabase
       .from("applications")
       .delete()
-      .eq("id", applicationId);
+      .eq("id", applicationId)
+      .eq("user_id", user.id)
+      .select("id");
 
     if (error) {
       setMessage(`Delete failed: ${error.message}`);
+      return;
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+      setMessage(
+        "Delete did not remove anything. This usually means a database delete permission (RLS policy) is missing on the applications table. Run the provided SQL migration, then try again."
+      );
       return;
     }
 
