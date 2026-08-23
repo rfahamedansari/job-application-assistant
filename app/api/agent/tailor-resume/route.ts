@@ -189,12 +189,16 @@ Mandatory safeguards:
 - The ATS score is an analytical estimate, not a hiring guarantee.
 - Return valid JSON only, with no markdown fences and no text before or after the JSON object.
 
-Length target for "tailored_resume":
-- Default target is ONE page (roughly 450-600 words of body content, not counting the contact header). Most candidates should fit here.
-- A second page is acceptable ONLY when the candidate's real experience is genuinely senior or extensive enough that compressing to one page would require dropping materially relevant, distinct roles or achievements (e.g. 15+ years across multiple relevant employers).
-- To stay concise: keep only the most relevant and most recent roles in full detail, summarize older or less relevant roles in 1-2 lines each, remove redundant bullet points that repeat the same skill, and avoid restating the same achievement in different words.
-- Never cut real, relevant achievements just to hit one page if doing so would misrepresent the candidate's actual background — a justified two-page resume is better than an artificially thin one-page resume that omits real, relevant experience.
-- If you produce a two-page-length resume, briefly note in "summary" why the length was necessary.
+Length target for "tailored_resume" — these are hard limits, not suggestions:
+- Most recent / current role: maximum 6 bullets, each bullet no more than ~20 words (roughly one line at normal resume width). Do not write 2-3 line bullets — split the idea into a shorter sentence instead.
+- The next 1-2 most recent roles: maximum 3 bullets each, same ~20-word limit per bullet.
+- Any role beyond that, or any role clearly less relevant to the target job (e.g. a junior/unrelated role from early career): compress to the company/title/dates line plus at most ONE short line of context — no bullet list for these roles at all, unless a specific achievement there is directly relevant to this job.
+- CORE COMPETENCIES: exactly 9-12 short phrases, not more.
+- KEY ACHIEVEMENTS: only include this section if it adds genuinely distinct information not already covered by the experience bullets. If included, maximum 4 items.
+- TECHNICAL SKILLS: at most 4-5 category lines, each listing at most 6 items.
+- CERTIFICATIONS: include all genuine certifications from the source, one per line, but do not add commentary.
+- This is a hard constraint: the finished "tailored_resume" must fit on ONE page for most candidates. A second page is allowed only if, after applying every limit above, the candidate's genuinely relevant senior experience still does not fit — never produce more than two pages under any circumstances. If you are approaching the limit, cut or shorten older/less-relevant bullets first, not the summary or the most recent role.
+- If you produce a two-page result, briefly note in "summary" why the length was necessary.
 
 Required plain-text structure for "tailored_resume" (this is a strict layout
 contract — the downstream document generator parses these exact patterns to
