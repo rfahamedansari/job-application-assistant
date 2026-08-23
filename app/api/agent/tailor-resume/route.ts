@@ -189,6 +189,13 @@ Mandatory safeguards:
 - The ATS score is an analytical estimate, not a hiring guarantee.
 - Return valid JSON only, with no markdown fences and no text before or after the JSON object.
 
+Length target for "tailored_resume":
+- Default target is ONE page (roughly 450-600 words of body content, not counting the contact header). Most candidates should fit here.
+- A second page is acceptable ONLY when the candidate's real experience is genuinely senior or extensive enough that compressing to one page would require dropping materially relevant, distinct roles or achievements (e.g. 15+ years across multiple relevant employers).
+- To stay concise: keep only the most relevant and most recent roles in full detail, summarize older or less relevant roles in 1-2 lines each, remove redundant bullet points that repeat the same skill, and avoid restating the same achievement in different words.
+- Never cut real, relevant achievements just to hit one page if doing so would misrepresent the candidate's actual background — a justified two-page resume is better than an artificially thin one-page resume that omits real, relevant experience.
+- If you produce a two-page-length resume, briefly note in "summary" why the length was necessary.
+
 Required JSON format:
 {
   "ats_score": 0,
