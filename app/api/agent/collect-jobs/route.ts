@@ -25,15 +25,17 @@ export async function POST(request: NextRequest) {
       uae_pages?: unknown;
       include_saudi?: unknown;
       include_qatar?: unknown;
+      include_oman?: unknown;
     };
     const query = typeof body.query === "string"
       ? body.query.trim().replace(/\s+/g, " ").slice(0, 80) || "Project Manager"
       : "Project Manager";
     const requestedUaePages = typeof body.uae_pages === "number" ? body.uae_pages : 6;
     const uaePages = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
-    const secondaryCountries: Array<"Saudi Arabia" | "Qatar"> = [];
+    const secondaryCountries: Array<"Saudi Arabia" | "Qatar" | "Oman"> = [];
     if (body.include_saudi === true) secondaryCountries.push("Saudi Arabia");
     if (body.include_qatar === true) secondaryCountries.push("Qatar");
+    if (body.include_oman === true) secondaryCountries.push("Oman");
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: authHeader } },
@@ -44,17 +46,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid or expired session." }, { status: 401 });
     }
 
-    const [{ data: profile }, { data: resumes }, collected] = await Promise.all([
+    const [{ data: profile }, { data: resumes }] = await Promise.all([
       supabase.from("profiles").select("target_categories,target_roles,preferred_countries,preferred_cities,skills,include_keywords,exclude_keywords,experience_years").eq("id", user.id).maybeSingle(),
       supabase.from("resumes").select("id,name,category").eq("user_id", user.id).order("is_primary", { ascending: false }),
-      collectJobs(query, uaePages, secondaryCountries),
     ]);
 
     const fallbackProfile = {
       target_categories: ["Project Management", "PMO", "Service Delivery", "Telecom", "Operations", "Cloud"],
       target_roles: ["Project Manager", "Technical Project Manager", "PMO", "Service Delivery Manager", "Service Manager", "Operations Manager"],
-      preferred_countries: ["United Arab Emirates", "Saudi Arabia", "Qatar"],
-      preferred_cities: ["Dubai", "Abu Dhabi", "Sharjah", "Riyadh", "Jeddah", "Dammam", "Khobar", "Doha"],
+      preferred_countries: ["United Arab Emirates", "Saudi Arabia", "Qatar", "Oman"],
+      preferred_cities: ["Dubai", "Abu Dhabi", "Sharjah", "Riyadh", "Jeddah", "Dammam", "Khobar", "Doha", "Muscat"],
       skills: ["PMP", "ITIL", "Project Management", "Service Delivery", "Telecom", "Vendor Management", "Stakeholder Management", "SLA", "KPI", "Risk Management"],
       include_keywords: ["ICT", "Telecom", "Managed Services", "PMO"],
       exclude_keywords: [],
@@ -62,12 +63,19 @@ export async function POST(request: NextRequest) {
     };
 
     const rankingProfile = profile ?? fallbackProfile;
+
+    // Search multiple related role phrasings (not just the exact search box
+    // text) so postings titled differently but genuinely relevant — e.g.
+    // "Programme Manager" or "PMO Lead" when searching "Project Manager" —
+    // don't get missed entirely.
+    const profileTargetRoles = Array.isArray(rankingProfile.target_roles) ? rankingProfile.target_roles : [];
+    const roleQueries = [query, ...profileTargetRoles];
+
+    const collected = await collectJobs(roleQueries, uaePages, secondaryCountries);
+
     const profileWithSearchRole = {
       ...rankingProfile,
-      target_roles: [
-        query,
-        ...(Array.isArray(rankingProfile.target_roles) ? rankingProfile.target_roles : []),
-      ],
+      target_roles: roleQueries,
     };
 
     const allRanked = collected.jobs
