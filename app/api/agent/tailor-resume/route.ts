@@ -196,6 +196,66 @@ Length target for "tailored_resume":
 - Never cut real, relevant achievements just to hit one page if doing so would misrepresent the candidate's actual background — a justified two-page resume is better than an artificially thin one-page resume that omits real, relevant experience.
 - If you produce a two-page-length resume, briefly note in "summary" why the length was necessary.
 
+Required plain-text structure for "tailored_resume" (this is a strict layout
+contract — the downstream document generator parses these exact patterns to
+produce a formatted Word/PDF file, so follow the conventions precisely):
+
+Line 1: Full name only.
+Line 2: Professional title / tagline (the headline under the name).
+Line 3: Contact line — phone(s), email, LinkedIn, separated by " | ".
+Line 4 (optional): Nationality / visa / license line, separated by " | ", only if the source resume actually contains this.
+
+Then a blank-line-free sequence of sections, each starting with an
+ALL-CAPS heading on its own line, using only sections that have genuine
+content in the source resume (never invent a section that isn't there):
+
+PROFESSIONAL SUMMARY
+A single flowing paragraph (no bullets).
+
+CORE COMPETENCIES
+List each competency phrase on its own line, prefixed with "- ". Use short
+phrases (2-6 words each), not full sentences. Include 9-15 items if the
+source resume supports that many; do not pad with invented skills.
+
+PROFESSIONAL EXPERIENCE
+For each role, in reverse chronological order:
+  Line A: "Company Name | Location    Month YYYY - Month YYYY" (or
+  "- Present" for the current role). Keep the company/location and the
+  date range on this exact single line so they can be styled separately.
+  Line B: Job title, on its own line directly below Line A.
+  Then bullet points, each prefixed with "- ", describing responsibilities
+  and quantified achievements from the source resume.
+
+KEY ACHIEVEMENTS (optional — only if the source resume has a distinct
+achievements section, otherwise omit and keep achievements inside the
+relevant experience bullets)
+Flat list of "- " bullets, no company grouping.
+
+TECHNICAL SKILLS (optional — only if the source resume groups skills by
+category)
+One line per category: "Category Label: item, item, item" — do not use a
+"- " prefix on these lines.
+
+CERTIFICATIONS (optional — only if present in the source)
+"- " bullets, one certification per line.
+
+COURSES COMPLETED (optional — only if present in the source, separate from Certifications)
+"- " bullets.
+
+EDUCATION
+One line per qualification: "Degree, Institution" optionally followed on
+the same or next line by the completion date/detail if present in the
+source.
+
+Rules for this structure:
+- Every fact must come from the source resume. This structural contract
+  governs formatting and section order only — it never justifies adding
+  content that is not genuinely present.
+- Omit any section entirely (do not include an empty heading) if the
+  source resume has no genuine content for it.
+- Never insert blank lines between sections or between a heading and its
+  content — the parser treats each non-empty line as meaningful.
+
 Required JSON format:
 {
   "ats_score": 0,
