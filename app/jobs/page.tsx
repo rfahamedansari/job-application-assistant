@@ -125,6 +125,8 @@ type BestResumeResult = {
   rankings: BestResumeRanking[];
 };
 
+type DateFilter = "all" | "1" | "3" | "5" | "7plus";
+
 type CollectedTopJob = Job & {
   external_id: string;
   match: {
@@ -221,8 +223,13 @@ const [bestResumeResults, setBestResumeResults] =
   const [jobSearchUaePages, setJobSearchUaePages] = useState(6);
   const [includeSaudiJobs, setIncludeSaudiJobs] = useState(false);
   const [includeQatarJobs, setIncludeQatarJobs] = useState(false);
+  const [includeOmanJobs, setIncludeOmanJobs] = useState(false);
   const [showAllCollectedJobs, setShowAllCollectedJobs] = useState(false);
   const [showEmailCollectedJobs, setShowEmailCollectedJobs] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  // Computed once via lazy initializer (not on every render) so the "days
+  // since posted" math stays pure during render, per React's rules.
+  const [nowMs] = useState(() => Date.now());
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
 
@@ -620,33 +627,52 @@ const [bestResumeResults, setBestResumeResults] =
         return;
       }
 
+      // The job itself is already saved at this point (ingest-job
+      // succeeded above). The email-application step below is a separate,
+      // secondary write. Its own try/catch keeps a failure here from being
+      // mislabeled as "the job could not be saved" — that message is
+      // misleading and previously also skipped resetting the form and
+      // reloading the jobs list, making a successful save look like it
+      // silently disappeared.
       if (processedJob.application_method === "email" && processedJob.contact_email && result.job?.id) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Your session has expired. Please sign in again.");
-        const { error: applicationError } = await supabase.from("applications").insert({
-          user_id: user.id,
-          job_id: result.job.id,
-          resume_id: null,
-          role: processedJob.title,
-          company: processedJob.company,
-          source: processedJob.source,
-          job_url: processedJob.job_url,
-          status: "Ready for Review",
-          // The current database schema requires this timestamp even before
-          // submission. Status remains "Ready for Review", so it is not
-          // counted or presented as an applied vacancy.
-          applied_at: new Date().toISOString(),
-        });
-        if (applicationError) {
-          throw new Error(`Job saved, but the email approval queue could not be created: ${applicationError.message}`);
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error("Your session has expired. Please sign in again.");
+          const { error: applicationError } = await supabase.from("applications").insert({
+            user_id: user.id,
+            job_id: result.job.id,
+            resume_id: null,
+            role: processedJob.title,
+            company: processedJob.company,
+            source: processedJob.source,
+            job_url: processedJob.job_url,
+            status: "Ready for Review",
+            // The current database schema requires this timestamp even before
+            // submission. Status remains "Ready for Review", so it is not
+            // counted or presented as an applied vacancy.
+            applied_at: new Date().toISOString(),
+          });
+          if (applicationError) {
+            throw new Error(applicationError.message);
+          }
+          setMessage("Email vacancy saved to Applications → Email Applications for resume and email approval.");
+          setMessageType("success");
+        } catch (applicationCreationError) {
+          setMessage(
+            `Job saved successfully, but the email approval queue entry could not be created: ${
+              applicationCreationError instanceof Error
+                ? applicationCreationError.message
+                : "Unexpected error"
+            }. Open the job in Daily Jobs and use "Mark as Applied" to add it to Applications manually.`
+          );
+          setMessageType("error");
         }
-        setMessage("Email vacancy saved to Applications → Email Applications for resume and email approval.");
       } else {
         setMessage(
           "Processed job saved successfully. Your existing match engine will score it below."
         );
+        setMessageType("success");
       }
-      setMessageType("success");
       setRawJobText("");
       setAiJobUrl("");
       setProcessedJob(null);
@@ -829,6 +855,7 @@ async function collectTopJobs() {
         uae_pages: jobSearchUaePages,
         include_saudi: includeSaudiJobs,
         include_qatar: includeQatarJobs,
+        include_oman: includeOmanJobs,
       }),
     });
     const result = await response.json();
@@ -912,23 +939,44 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
       categoryFilter === "All" ||
       job.category === categoryFilter;
 
+    const matchesDate = matchesDateFilter(job.posted_at, dateFilter);
+
     return (
       matchesSearch &&
       matchesSource &&
-      matchesCategory
+      matchesCategory &&
+      matchesDate
     );
   });
 
-  function formatDate(value: string | null) {
-    if (!value) {
-      return "Date not available";
-    }
+  function daysSincePosted(value: string | null): number | null {
+    if (!value) return null;
+    const posted = new Date(value).getTime();
+    if (Number.isNaN(posted)) return null;
+    const diffMs = nowMs - posted;
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  }
 
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(value));
+  function formatRelativeDate(value: string | null) {
+    const days = daysSincePosted(value);
+    if (days === null) return "Date not verified";
+    if (days === 0) return "Posted: Today";
+    if (days === 1) return "Posted: Yesterday";
+    return `Posted: ${days} days ago`;
+  }
+
+  function matchesDateFilter(value: string | null, filter: DateFilter) {
+    if (filter === "all") return true;
+    const days = daysSincePosted(value);
+    // Jobs with no reliable posted date are excluded from every specific
+    // date bucket (they can't be verified as recent), but still show up
+    // under "All".
+    if (days === null) return false;
+    if (filter === "1") return days <= 1;
+    if (filter === "3") return days <= 3;
+    if (filter === "5") return days <= 5;
+    if (filter === "7plus") return days > 7;
+    return true;
   }
 
   const messageStyles = {
@@ -1048,6 +1096,15 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                       />
                       Add Qatar (up to 10 jobs)
                     </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={includeOmanJobs}
+                        onChange={(event) => setIncludeOmanJobs(event.target.checked)}
+                        className="h-4 w-4 accent-purple-500"
+                      />
+                      Add Oman (up to 10 jobs)
+                    </label>
                   </div>
                   <p className="text-xs text-amber-200">
                     UAE uses the selected JSearch pages first. Each optional country uses one additional API credit and runs afterward.
@@ -1103,11 +1160,30 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                       No email-application vacancies were exposed by today&apos;s provider results. You can still paste a recruiter post below for AI extraction.
                     </p>
                   )}
+                <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Posted-date filter">
+                  <span className="text-xs font-semibold text-slate-400">Posted within:</span>
+                  {([
+                    { value: "all", label: "All" },
+                    { value: "1", label: "1 Day" },
+                    { value: "3", label: "3 Days" },
+                    { value: "5", label: "5 Days" },
+                    { value: "7plus", label: "7+ Days" },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setDateFilter(option.value)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${dateFilter === option.value ? "bg-purple-500 text-white" : "border border-slate-700 text-slate-400 hover:bg-slate-800"}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   {(showEmailCollectedJobs
                     ? allCollectedJobs.filter((job) => job.application_method === "email" && job.contact_email)
                     : showAllCollectedJobs ? allCollectedJobs : topCollectedJobs
-                  ).map((job, index) => (
+                  ).filter((job) => matchesDateFilter(job.posted_at, dateFilter)).map((job, index) => (
                     <article key={job.external_id} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -1115,6 +1191,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                           <h4 className="mt-2 font-semibold">{job.title}</h4>
                           <p className="mt-1 text-sm text-slate-300">{job.company}</p>
                           <p className="mt-1 text-xs text-slate-500">{job.location || job.country} · {job.source}</p>
+                          <p className="mt-1 text-xs text-slate-500">{formatRelativeDate(job.posted_at)}</p>
                         </div>
                         <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-bold ${job.match.score >= 75 ? "bg-emerald-500/15 text-emerald-300" : job.match.score >= 50 ? "bg-amber-500/15 text-amber-200" : "bg-slate-800 text-slate-300"}`}>
                           {job.match.score}%
@@ -1513,6 +1590,25 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                     </select>
 
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Posted-date filter">
+                    <span className="text-xs font-semibold text-slate-400">Posted within:</span>
+                    {([
+                      { value: "all", label: "All" },
+                      { value: "1", label: "1 Day" },
+                      { value: "3", label: "3 Days" },
+                      { value: "5", label: "5 Days" },
+                      { value: "7plus", label: "7+ Days" },
+                    ] as const).map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setDateFilter(option.value)}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${dateFilter === option.value ? "bg-purple-500 text-white" : "border border-slate-700 text-slate-400 hover:bg-slate-800"}`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="mt-5 space-y-4">
@@ -1568,8 +1664,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                           </p>
 
                           <p className="mt-3 text-xs text-slate-500">
-                            Posted:{" "}
-                            {formatDate(job.posted_at)}
+                            {formatRelativeDate(job.posted_at)}
                           </p>
 
                           {(job.source_type || job.application_method || job.contact_email) && (
