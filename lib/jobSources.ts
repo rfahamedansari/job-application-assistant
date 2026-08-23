@@ -3,7 +3,7 @@ export type CollectedJob = {
   title: string;
   company: string;
   location: string;
-  country: "United Arab Emirates" | "Saudi Arabia" | "Qatar";
+  country: "United Arab Emirates" | "Saudi Arabia" | "Qatar" | "Oman";
   source: string;
   job_url: string;
   job_description: string;
@@ -53,6 +53,9 @@ function inferCountry(value: string): CollectedJob["country"] | null {
   }
   if (/qatar|doha/.test(normalized)) {
     return "Qatar";
+  }
+  if (/\boman\b|muscat|salalah|sohar/.test(normalized)) {
+    return "Oman";
   }
   return null;
 }
@@ -141,43 +144,8 @@ async function collectArbeitnow(): Promise<SourceResult> {
   }
 }
 
-async function collectAdzuna(countryCode: "ae" | "sa", roleQuery: string): Promise<SourceResult> {
-  const appId = process.env.ADZUNA_APP_ID;
-  const appKey = process.env.ADZUNA_APP_KEY;
-  if (!appId || !appKey) return { jobs: [], warning: "Adzuna: API keys not configured" };
-  try {
-    const query = encodeURIComponent(normalizeQuery(roleQuery));
-    const url = `https://api.adzuna.com/v1/api/jobs/${countryCode}/search/1?app_id=${encodeURIComponent(appId)}&app_key=${encodeURIComponent(appKey)}&results_per_page=50&what=${query}&sort_by=date`;
-    const payload = await fetchJson(url);
-    const rows = Array.isArray(payload.results) ? payload.results : [];
-    const jobs = rows.flatMap((row): CollectedJob[] => {
-      if (!row || typeof row !== "object") return [];
-      const item = row as Record<string, unknown>;
-      const company = item.company && typeof item.company === "object" ? text((item.company as Record<string, unknown>).display_name) : "";
-      const locationObject = item.location && typeof item.location === "object" ? item.location as Record<string, unknown> : {};
-      const location = text(locationObject.display_name);
-      return [{
-        external_id: `adzuna-${String(item.id ?? text(item.redirect_url))}`,
-        title: text(item.title),
-        company: company || "Company not specified",
-        location,
-        country: countryCode === "ae" ? "United Arab Emirates" : "Saudi Arabia",
-        source: "Adzuna",
-        job_url: text(item.redirect_url),
-        job_description: stripHtml(text(item.description)),
-        employment_type: text(item.contract_time) || null,
-        salary_text: item.salary_min ? `${String(item.salary_min)}${item.salary_max ? `–${String(item.salary_max)}` : ""}` : null,
-        posted_at: text(item.created) || null,
-      }];
-    });
-    return { jobs: jobs.filter((job) => isRelevant(job, roleQuery)) };
-  } catch (error) {
-    return { jobs: [], warning: `Adzuna ${countryCode.toUpperCase()}: ${error instanceof Error ? error.message : "unavailable"}` };
-  }
-}
-
 async function collectJSearch(
-  country: "United Arab Emirates" | "Saudi Arabia" | "Qatar",
+  country: "United Arab Emirates" | "Saudi Arabia" | "Qatar" | "Oman",
   roleQuery: string,
   pageCount: number,
 ): Promise<SourceResult> {
@@ -188,8 +156,16 @@ async function collectJSearch(
       ? `${normalizeQuery(roleQuery)} in Dubai, UAE`
       : country === "Saudi Arabia"
         ? `${normalizeQuery(roleQuery)} in Riyadh, Saudi Arabia`
-        : `${normalizeQuery(roleQuery)} in Doha, Qatar`;
-    const countryCode = country === "United Arab Emirates" ? "ae" : country === "Saudi Arabia" ? "sa" : "qa";
+        : country === "Qatar"
+          ? `${normalizeQuery(roleQuery)} in Doha, Qatar`
+          : `${normalizeQuery(roleQuery)} in Muscat, Oman`;
+    const countryCode = country === "United Arab Emirates"
+      ? "ae"
+      : country === "Saudi Arabia"
+        ? "sa"
+        : country === "Qatar"
+          ? "qa"
+          : "om";
     const query = encodeURIComponent(searchText);
     const payload = await fetchJson(`https://jsearch.p.rapidapi.com/search-v2?query=${query}&num_pages=${pageCount}&date_posted=all&country=${countryCode}&language=en`, {
       headers: {
@@ -229,24 +205,45 @@ async function collectJSearch(
 }
 
 export async function collectJobs(
-  roleQuery = "Project Manager",
+  roleQueries: string[] = ["Project Manager"],
   requestedUaePages = 6,
-  secondaryCountries: Array<"Saudi Arabia" | "Qatar"> = [],
+  secondaryCountries: Array<"Saudi Arabia" | "Qatar" | "Oman"> = [],
 ) {
-  const normalizedQuery = normalizeQuery(roleQuery);
-  const uaePageCount = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
+  const normalizedQueries = [
+    ...new Set(
+      roleQueries
+        .map((query) => normalizeQuery(query))
+        .filter(Boolean)
+    ),
+  ].slice(0, 3); // cap at 3 distinct phrases to keep API usage bounded
+
+  if (normalizedQueries.length === 0) normalizedQueries.push("Project Manager");
+
   const results = await Promise.all([
     collectRemotive(),
     collectArbeitnow(),
-    collectAdzuna("ae", normalizedQuery),
-    ...(secondaryCountries.includes("Saudi Arabia") ? [collectAdzuna("sa", normalizedQuery)] : []),
   ]);
-  const uaeJobs = await collectJSearch("United Arab Emirates", normalizedQuery, uaePageCount);
-  results.push(uaeJobs);
+
+  // Split the requested UAE page budget across the query phrases so total
+  // API usage stays roughly the same as a single-phrase search, while
+  // covering more of the ways this role actually gets titled.
+  const uaePageCount = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
+  const pagesPerQuery = Math.max(1, Math.ceil(uaePageCount / normalizedQueries.length));
+
+  const uaeResults = await Promise.all(
+    normalizedQueries.map((query) => collectJSearch("United Arab Emirates", query, pagesPerQuery))
+  );
+  results.push(...uaeResults);
+
   for (const country of secondaryCountries) {
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-    results.push(await collectJSearch(country, normalizedQuery, 1));
+    // Only the top 2 phrases for secondary countries, to control API cost —
+    // these are already opt-in, lower-priority searches.
+    for (const query of normalizedQueries.slice(0, 2)) {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      results.push(await collectJSearch(country, query, 1));
+    }
   }
+
   const unique = new Map<string, CollectedJob>();
   const allowedCountries = new Set<CollectedJob["country"]>(["United Arab Emirates", ...secondaryCountries]);
   for (const job of results.flatMap((result) => result.jobs)) {
