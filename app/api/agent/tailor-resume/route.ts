@@ -64,6 +64,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // TEMPORARY DIAGNOSTIC LOGGING — remove after root cause is found.
+    console.log("[tailor-resume-debug] user.id:", user.id);
+    console.log("[tailor-resume-debug] applicationId received:", JSON.stringify(applicationId));
+
     // Do not use .single() here. Supabase returns the same coercion error for
     // both zero rows and duplicate legacy rows, which hides the real problem
     // from the review workflow. Limit the result and handle an empty array
@@ -74,6 +78,9 @@ export async function POST(request: NextRequest) {
       .eq("id", applicationId)
       .eq("user_id", user.id)
       .limit(1);
+
+    console.log("[tailor-resume-debug] query result data:", JSON.stringify(applicationResult.data));
+    console.log("[tailor-resume-debug] query result error:", JSON.stringify(applicationResult.error));
 
     const application = applicationResult.data?.[0] ?? null;
     const applicationError = applicationResult.error;
