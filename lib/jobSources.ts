@@ -224,6 +224,10 @@ const APIFY_COUNTRY_MAP: Record<CollectedJob["country"], string> = {
   Oman: "OM",
 };
 
+// Module-level so both the LinkedIn description scan (inside collectJobs)
+// and the LinkedIn hiring-post collector (below) can use the same pattern.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
 // Runs an Apify Actor synchronously and returns its raw dataset items.
 // Uses the REST API directly (not the Apify MCP tools, which only exist in
 // this development chat) — the deployed app authenticates with its own
@@ -511,6 +515,91 @@ async function collectCrustdata(
   }
 }
 
+// Finds personal LinkedIn "hiring" posts — the informal recruiter-post
+// pattern (e.g. "🚨 Hiring PMO, Dubai — email your CV to...") that never
+// appears in LinkedIn's structured Jobs board and so can never be reached
+// by a jobs-board scraper. Uses Crustdata's LinkedIn post keyword search,
+// which indexes the actual social feed. Only posts where a genuine email
+// address is found in the text are kept — a "DM me" post with no email
+// isn't actionable through the app's email-application workflow.
+async function collectCrustdataLinkedInPosts(
+  country: CollectedJob["country"],
+  roleQuery: string,
+  city: string
+): Promise<SourceResult> {
+  const apiKey = process.env.CRUSTDATA_API_KEY;
+  if (!apiKey) return { jobs: [] };
+
+  try {
+    const response = await fetch(
+      "https://api.crustdata.com/screener/linkedin_posts/keyword_search/",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+          "x-api-version": "2025-11-01",
+        },
+        body: JSON.stringify({
+          keyword: `hiring ${normalizeQuery(roleQuery)} ${city}`,
+          date_posted: "past-week",
+          limit: 20,
+          format: "json",
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+
+    const payload = (await response.json()) as { posts?: unknown };
+    const posts = Array.isArray(payload.posts) ? payload.posts : [];
+
+    const jobs: CollectedJob[] = posts.flatMap((row): CollectedJob[] => {
+      if (!row || typeof row !== "object") return [];
+      const item = row as Record<string, unknown>;
+      const postText = text(item.text);
+      const emailMatch = postText.match(EMAIL_PATTERN);
+
+      // Skip posts with no extractable email — not actionable via the
+      // email-application workflow, and we don't want to clutter results
+      // with posts that just say "DM me" or link out elsewhere.
+      if (!emailMatch) return [];
+
+      const url = text(item.share_url);
+      if (!url) return [];
+
+      const authorName = text(item.actor_name);
+      // Use the post's first line as a title — hiring posts are almost
+      // always written as a short headline first line ("Hiring | PMO...").
+      const firstLine = postText.split("\n")[0]?.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+
+      return [{
+        external_id: `crustdata-linkedin-post-${text(item.uid) || url}`,
+        title: firstLine || `${roleQuery} — LinkedIn hiring post`,
+        company: authorName ? `Posted by ${authorName}` : "Recruiter post",
+        location: city,
+        country,
+        source: "Crustdata · LinkedIn Post",
+        job_url: url,
+        job_description: postText,
+        employment_type: null,
+        salary_text: null,
+        posted_at: text(item.date_posted) || null,
+        contact_email: emailMatch[0],
+        application_method: "email",
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Crustdata LinkedIn Posts: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
 const COUNTRY_PRIMARY_CITY: Record<CollectedJob["country"], string> = {
   "United Arab Emirates": "Dubai",
   "Saudi Arabia": "Riyadh",
@@ -543,9 +632,24 @@ export async function collectJobs(
   if (process.env.CRUSTDATA_API_KEY) {
     const primaryQuery = normalizedQueries[0];
     results.push(await collectCrustdata("United Arab Emirates", primaryQuery));
+    results.push(
+      await collectCrustdataLinkedInPosts(
+        "United Arab Emirates",
+        primaryQuery,
+        COUNTRY_PRIMARY_CITY["United Arab Emirates"]
+      )
+    );
     for (const country of secondaryCountries) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       results.push(await collectCrustdata(country, primaryQuery));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      results.push(
+        await collectCrustdataLinkedInPosts(
+          country,
+          primaryQuery,
+          COUNTRY_PRIMARY_CITY[country]
+        )
+      );
     }
   }
 
@@ -616,8 +720,6 @@ export async function collectJobs(
 // a real, structured contact_email directly from their own Apify actors
 // (see collectApifyBayt/collectApifyNaukriGulf above), so they don't need
 // this fallback either.
-const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-
 function detectEmailInDescription(job: CollectedJob): CollectedJob {
   if (job.contact_email) return job;
   if (!job.source.includes("LinkedIn")) return job;
