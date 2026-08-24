@@ -10,6 +10,11 @@ export type CollectedJob = {
   employment_type: string | null;
   salary_text: string | null;
   posted_at: string | null;
+  // Bayt and NaukriGulf's Apify actors extract a direct recruiter contact
+  // straight from the listing — surfacing it here lets the app skip the
+  // AI-parsing step for these jobs when deciding if it's an email
+  // application, same as a manually pasted recruiter post would get.
+  contact_email?: string | null;
 };
 
 type SourceResult = {
@@ -208,6 +213,305 @@ async function collectJSearch(
   }
 }
 
+const APIFY_COUNTRY_MAP: Record<CollectedJob["country"], string> = {
+  "United Arab Emirates": "AE",
+  "Saudi Arabia": "SA",
+  Qatar: "QA",
+  Oman: "OM",
+};
+
+// Runs an Apify Actor synchronously and returns its raw dataset items.
+// Uses the REST API directly (not the Apify MCP tools, which only exist in
+// this development chat) — the deployed app authenticates with its own
+// APIFY_API_TOKEN. Actor IDs use "~" in REST URLs (e.g.
+// "valig~linkedin-jobs-scraper"), not "/" as shown on the Apify Store site.
+async function runApifyActor(
+  actorId: string,
+  input: Record<string, unknown>
+): Promise<Record<string, unknown>[]> {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) {
+    throw new Error("APIFY_API_TOKEN is not configured");
+  }
+
+  const response = await fetch(
+    `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(
+      token
+    )}&timeout=60`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+      signal: AbortSignal.timeout(65_000),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+
+  const items = (await response.json()) as unknown;
+  return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
+async function collectApifyLinkedIn(
+  country: CollectedJob["country"],
+  roleQuery: string,
+  city: string
+): Promise<SourceResult> {
+  try {
+    const items = await runApifyActor("valig~linkedin-jobs-scraper", {
+      keywords: normalizeQuery(roleQuery),
+      location: `${city}, ${country}`,
+      limit: 25,
+    });
+
+    const jobs: CollectedJob[] = items.flatMap((item) => {
+      const url = text(item.url);
+      if (!url) return [];
+      return [{
+        external_id: `apify-linkedin-${text(item.id) || url}`,
+        title: text(item.title),
+        company: text(item.companyName) || "Company not specified",
+        location: text(item.location),
+        country,
+        source: "Apify · LinkedIn",
+        job_url: url,
+        job_description: text(item.description),
+        employment_type: text(item.contractType) || null,
+        salary_text: text(item.salary) || null,
+        posted_at: text(item.postedDate) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Apify LinkedIn: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+async function collectApifyIndeed(
+  country: CollectedJob["country"],
+  roleQuery: string,
+  city: string
+): Promise<SourceResult> {
+  try {
+    const items = await runApifyActor("valig~indeed-jobs-scraper", {
+      country: APIFY_COUNTRY_MAP[country].toLowerCase(),
+      title: normalizeQuery(roleQuery),
+      location: city,
+      limit: 25,
+    });
+
+    const jobs: CollectedJob[] = items.flatMap((item) => {
+      const url = text(item.jobUrl) || text(item.url);
+      if (!url) return [];
+      const location = item.location as Record<string, unknown> | undefined;
+      const employer = item.employer as Record<string, unknown> | undefined;
+      const description = item.description as Record<string, unknown> | undefined;
+      const baseSalary = item.baseSalary as Record<string, unknown> | undefined;
+      const salaryMin = baseSalary?.min;
+      const salaryCurrency = text(baseSalary?.currencyCode);
+      return [{
+        external_id: `apify-indeed-${text(item.key) || url}`,
+        title: text(item.title),
+        company: text(employer?.name) || "Company not specified",
+        location: text(location?.city) || city,
+        country,
+        source: "Apify · Indeed",
+        job_url: url,
+        job_description: text(description?.text),
+        employment_type: null,
+        salary_text: salaryMin ? `${salaryCurrency} ${String(salaryMin)}` : null,
+        posted_at: text(item.datePublished) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Apify Indeed: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+async function collectApifyBayt(
+  country: CollectedJob["country"],
+  roleQuery: string,
+  city: string
+): Promise<SourceResult> {
+  try {
+    const items = await runApifyActor("blackfalcondata~bayt-scraper", {
+      query: normalizeQuery(roleQuery),
+      country: APIFY_COUNTRY_MAP[country],
+      location: city,
+      maxResults: 25,
+    });
+
+    const jobs: CollectedJob[] = items.flatMap((item) => {
+      const url = text(item.url) || text(item.applyUrl);
+      if (!url) return [];
+      return [{
+        external_id: `apify-bayt-${text(item.jobId) || url}`,
+        title: text(item.title),
+        company: text(item.company) || "Company not specified",
+        location: text(item.location) || text(item.city),
+        country,
+        source: "Apify · Bayt",
+        job_url: url,
+        job_description: text(item.description),
+        employment_type: text(item.employmentType) || null,
+        salary_text: text(item.salaryText) || null,
+        posted_at: text(item.postedDate) || text(item.postedAt) || null,
+        contact_email: text(item.contactEmail) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Apify Bayt: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+async function collectApifyGulfTalent(
+  country: CollectedJob["country"],
+  roleQuery: string,
+  city: string
+): Promise<SourceResult> {
+  try {
+    const items = await runApifyActor("blackfalcondata~gulftalent-scraper", {
+      query: normalizeQuery(roleQuery),
+      country: APIFY_COUNTRY_MAP[country],
+      maxResults: 25,
+    });
+
+    const jobs: CollectedJob[] = items.flatMap((item) => {
+      const url = text(item.canonicalUrl) || text(item.applyUrl) || text(item.sourceUrl);
+      if (!url) return [];
+      return [{
+        external_id: `apify-gulftalent-${text(item.jobId) || url}`,
+        title: text(item.title),
+        company: text(item.company) || "Company not specified",
+        location: text(item.locationLocality) || city,
+        country,
+        source: "Apify · GulfTalent",
+        job_url: url,
+        job_description: text(item.descriptionText) || text(item.description),
+        employment_type: text(item.employmentType) || null,
+        salary_text: text(item.salaryText) || null,
+        posted_at: text(item.postedAt) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Apify GulfTalent: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+async function collectApifyNaukriGulf(
+  country: CollectedJob["country"],
+  roleQuery: string
+): Promise<SourceResult> {
+  try {
+    const items = await runApifyActor("blackfalcondata~naukrigulf-scraper", {
+      query: normalizeQuery(roleQuery),
+      location: country,
+      maxResults: 25,
+    });
+
+    const jobs: CollectedJob[] = items.flatMap((item) => {
+      const url = text(item.url);
+      if (!url) return [];
+      return [{
+        external_id: `apify-naukrigulf-${text(item.jobId) || url}`,
+        title: text(item.title),
+        company: text(item.company) || "Company not specified",
+        location: text(item.location),
+        country,
+        source: "Apify · NaukriGulf",
+        job_url: url,
+        job_description: text(item.description),
+        employment_type: text(item.employmentType) || null,
+        salary_text: text(item.salaryMinText) || null,
+        posted_at: text(item.postedAt) || null,
+        contact_email: text(item.contactEmail) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Apify NaukriGulf: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+async function collectCrustdata(
+  country: CollectedJob["country"],
+  roleQuery: string
+): Promise<SourceResult> {
+  const apiKey = process.env.CRUSTDATA_API_KEY;
+  if (!apiKey) return { jobs: [], warning: "Crustdata: API key not configured" };
+  try {
+    const response = await fetch("https://api.crustdata.com/job/search", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+        "x-api-version": "2025-11-01",
+      },
+      body: JSON.stringify({
+        filters: {
+          op: "and",
+          conditions: [
+            { field: "job_details.title", type: "(.)", value: normalizeQuery(roleQuery) },
+            { field: "location.country", type: "(.)", value: country },
+          ],
+        },
+        limit: 25,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+
+    const payload = (await response.json()) as { job_listings?: unknown };
+    const listings = Array.isArray(payload.job_listings) ? payload.job_listings : [];
+
+    const jobs: CollectedJob[] = listings.flatMap((row): CollectedJob[] => {
+      if (!row || typeof row !== "object") return [];
+      const item = row as Record<string, unknown>;
+      const url = text(item.url);
+      if (!url) return [];
+      return [{
+        external_id: `crustdata-${text(item.crustdata_job_id) || url}`,
+        title: text(item.title),
+        company: text(item.company_name) || "Company not specified",
+        location: text(item.city) || text(item.location),
+        country,
+        source: "Crustdata",
+        job_url: url,
+        job_description: text(item.description),
+        employment_type: text(item.workplace_type) || null,
+        salary_text: null,
+        posted_at: text(item.date_added) || null,
+      }];
+    });
+
+    return { jobs };
+  } catch (error) {
+    return { jobs: [], warning: `Crustdata: ${error instanceof Error ? error.message : "unavailable"}` };
+  }
+}
+
+const COUNTRY_PRIMARY_CITY: Record<CollectedJob["country"], string> = {
+  "United Arab Emirates": "Dubai",
+  "Saudi Arabia": "Riyadh",
+  Qatar: "Doha",
+  Oman: "Muscat",
+};
+
 export async function collectJobs(
   roleQueries: string[] = ["Project Manager"],
   requestedUaePages = 6,
@@ -227,6 +531,45 @@ export async function collectJobs(
     collectRemotive(),
     collectArbeitnow(),
   ]);
+
+  // Crustdata only runs when CRUSTDATA_API_KEY is configured — same
+  // opt-in safety pattern as the Apify sources above.
+  if (process.env.CRUSTDATA_API_KEY) {
+    const primaryQuery = normalizedQueries[0];
+    results.push(await collectCrustdata("United Arab Emirates", primaryQuery));
+    for (const country of secondaryCountries) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      results.push(await collectCrustdata(country, primaryQuery));
+    }
+  }
+
+  // Apify sources only run when APIFY_API_TOKEN is configured — this keeps
+  // the app working exactly as before for anyone who hasn't set it up, and
+  // avoids charging your Apify account by accident.
+  if (process.env.APIFY_API_TOKEN) {
+    const primaryQuery = normalizedQueries[0];
+    const uaeCity = COUNTRY_PRIMARY_CITY["United Arab Emirates"];
+    const apifyResults = await Promise.all([
+      collectApifyLinkedIn("United Arab Emirates", primaryQuery, uaeCity),
+      collectApifyIndeed("United Arab Emirates", primaryQuery, uaeCity),
+      collectApifyBayt("United Arab Emirates", primaryQuery, uaeCity),
+      collectApifyGulfTalent("United Arab Emirates", primaryQuery, uaeCity),
+      collectApifyNaukriGulf("United Arab Emirates", primaryQuery),
+    ]);
+    results.push(...apifyResults);
+
+    for (const country of secondaryCountries) {
+      const city = COUNTRY_PRIMARY_CITY[country];
+      const secondaryApifyResults = await Promise.all([
+        collectApifyLinkedIn(country, primaryQuery, city),
+        collectApifyIndeed(country, primaryQuery, city),
+        collectApifyBayt(country, primaryQuery, city),
+        collectApifyGulfTalent(country, primaryQuery, city),
+        collectApifyNaukriGulf(country, primaryQuery),
+      ]);
+      results.push(...secondaryApifyResults);
+    }
+  }
 
   // Split the requested UAE page budget across the query phrases so total
   // API usage stays roughly the same as a single-phrase search, while
