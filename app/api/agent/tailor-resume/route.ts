@@ -324,10 +324,33 @@ ${resume.resume_text.slice(0, 50000)}
           .trim()
       );
     } catch {
-      return NextResponse.json(
-        { error: "AI response could not be parsed as JSON." },
-        { status: 500 }
-      );
+      // Fallback: the model occasionally adds a short preamble or trailing
+      // note despite being told not to. Extract the outermost {...} block
+      // and try again before giving up.
+      const firstBrace = outputText.indexOf("{");
+      const lastBrace = outputText.lastIndexOf("}");
+
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        try {
+          tailoring = JSON.parse(outputText.slice(firstBrace, lastBrace + 1));
+        } catch {
+          return NextResponse.json(
+            {
+              error:
+                "AI response could not be parsed as JSON. Try again — this is usually a one-off formatting issue, not a repeated failure.",
+            },
+            { status: 500 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "AI response could not be parsed as JSON. Try again — this is usually a one-off formatting issue, not a repeated failure.",
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
