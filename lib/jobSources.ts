@@ -546,6 +546,20 @@ export async function collectJobs(
   // Apify sources only run when APIFY_API_TOKEN is configured — this keeps
   // the app working exactly as before for anyone who hasn't set it up, and
   // avoids charging your Apify account by accident.
+  // TEMPORARY DIAGNOSTIC — remove once the env var issue is confirmed fixed.
+  console.log(
+    "[collect-jobs-debug] APIFY_API_TOKEN present:",
+    Boolean(process.env.APIFY_API_TOKEN),
+    "length:",
+    process.env.APIFY_API_TOKEN?.length ?? 0
+  );
+  console.log(
+    "[collect-jobs-debug] CRUSTDATA_API_KEY present:",
+    Boolean(process.env.CRUSTDATA_API_KEY),
+    "length:",
+    process.env.CRUSTDATA_API_KEY?.length ?? 0
+  );
+
   if (process.env.APIFY_API_TOKEN) {
     const primaryQuery = normalizedQueries[0];
     const uaeCity = COUNTRY_PRIMARY_CITY["United Arab Emirates"];
