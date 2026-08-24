@@ -230,6 +230,17 @@ const [bestResumeResults, setBestResumeResults] =
   // Computed once via lazy initializer (not on every render) so the "days
   // since posted" math stays pure during render, per React's rules.
   const [nowMs] = useState(() => Date.now());
+  const [quickTailorJobKey, setQuickTailorJobKey] = useState<string | null>(null);
+  const [quickTailorLoading, setQuickTailorLoading] = useState(false);
+  const [quickTailorError, setQuickTailorError] = useState("");
+  const [quickTailorResult, setQuickTailorResult] = useState<{
+    ats_score: number;
+    tailored_resume: string;
+    summary: string;
+    missing_keywords: string[];
+  } | null>(null);
+  const [quickTailorApproved, setQuickTailorApproved] = useState(false);
+  const [quickTailorDownloading, setQuickTailorDownloading] = useState<"docx" | "pdf" | null>(null);
   const [isCollectingJobs, setIsCollectingJobs] = useState(false);
   const [collectionWarnings, setCollectionWarnings] = useState<string[]>([]);
 
@@ -949,6 +960,103 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
     );
   });
 
+  async function runQuickTailor(job: { external_id?: string; id?: string; title: string; company: string; job_description?: string | null }) {
+    const key = job.external_id ?? job.id ?? job.title;
+    setQuickTailorJobKey(key);
+    setQuickTailorLoading(true);
+    setQuickTailorError("");
+    setQuickTailorResult(null);
+    setQuickTailorApproved(false);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Your session has expired. Please sign in again.");
+
+      const response = await fetch("/api/agent/tailor-resume-for-job", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          title: job.title,
+          company: job.company,
+          job_description: job.job_description ?? "",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error ?? "Tailoring failed.");
+      }
+
+      setQuickTailorResult(result.tailoring);
+    } catch (error) {
+      setQuickTailorError(
+        error instanceof Error ? error.message : "Unexpected error while tailoring."
+      );
+    } finally {
+      setQuickTailorLoading(false);
+    }
+  }
+
+  function closeQuickTailor() {
+    setQuickTailorJobKey(null);
+    setQuickTailorResult(null);
+    setQuickTailorError("");
+    setQuickTailorApproved(false);
+  }
+
+  async function downloadQuickTailorResume(
+    format: "docx" | "pdf",
+    role: string,
+    company: string
+  ) {
+    if (!quickTailorResult?.tailored_resume) return;
+    setQuickTailorDownloading(format);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Your session has expired. Please sign in again.");
+
+      const response = await fetch("/api/agent/export-tailored-resume", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          format,
+          resume_text: quickTailorResult.tailored_resume,
+          role,
+          company,
+        }),
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error ?? "Download failed.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `resume.${format === "docx" ? "docx" : "pdf"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setQuickTailorError(
+        error instanceof Error ? error.message : "Download failed."
+      );
+    } finally {
+      setQuickTailorDownloading(null);
+    }
+  }
+
   function daysSincePosted(value: string | null): number | null {
     if (!value) return null;
     const posted = new Date(value).getTime();
@@ -1200,18 +1308,27 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                       {job.match.reasons.length > 0 && (
                         <p className="mt-3 text-xs leading-5 text-emerald-300">✓ {job.match.reasons.slice(0, 2).join(" · ")}</p>
                       )}
-                      <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
-                        Review Original Job
-                      </a>
-                      {job.application_method === "email" && job.contact_email && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
+                          Review Original Job
+                        </a>
                         <button
                           type="button"
-                          onClick={() => reviewCollectedEmailJob(job)}
-                          className="ml-2 mt-4 inline-flex rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                          onClick={() => runQuickTailor(job)}
+                          className="inline-flex rounded-lg border border-purple-500 px-4 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-500/10"
                         >
-                          Review Email Vacancy
+                          Tailor &amp; Download
                         </button>
-                      )}
+                        {job.application_method === "email" && job.contact_email && (
+                          <button
+                            type="button"
+                            onClick={() => reviewCollectedEmailJob(job)}
+                            className="inline-flex rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                          >
+                            Review Email Vacancy
+                          </button>
+                        )}
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -2162,6 +2279,93 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
           </section>
 
         </div>
+
+        {quickTailorJobKey && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-purple-500/30 bg-slate-900 p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-purple-300">Tailor &amp; Download</p>
+                  <h3 className="mt-1 text-lg font-semibold">Review-only mode. Nothing is sent and your original resume is never replaced.</h3>
+                </div>
+                <button type="button" onClick={closeQuickTailor} className="rounded-lg border border-slate-700 px-3 py-1 text-sm text-slate-400 hover:bg-slate-800">
+                  Close
+                </button>
+              </div>
+
+              {quickTailorLoading && (
+                <p className="mt-6 text-sm text-slate-400">Tailoring your resume for this job — this can take 10-20 seconds…</p>
+              )}
+
+              {quickTailorError && (
+                <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                  <p className="font-semibold text-red-200">Tailored resume could not be generated</p>
+                  <p className="mt-1 text-sm text-red-200">{quickTailorError}</p>
+                </div>
+              )}
+
+              {quickTailorResult && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-3">
+                    <span className={`rounded-full px-3 py-1 text-sm font-bold ${quickTailorResult.ats_score >= 75 ? "bg-emerald-500/15 text-emerald-300" : quickTailorResult.ats_score >= 50 ? "bg-amber-500/15 text-amber-200" : "bg-slate-800 text-slate-300"}`}>
+                      {quickTailorResult.ats_score}% Match
+                    </span>
+                  </div>
+                  {quickTailorResult.summary && (
+                    <p className="mt-3 text-sm text-slate-300">{quickTailorResult.summary}</p>
+                  )}
+                  <textarea
+                    readOnly
+                    value={quickTailorResult.tailored_resume}
+                    className="mt-4 h-64 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-200"
+                  />
+                  <label className="mt-4 flex items-start gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={quickTailorApproved}
+                      onChange={(event) => setQuickTailorApproved(event.target.checked)}
+                      className="mt-1 h-4 w-4 accent-purple-500"
+                    />
+                    I reviewed this draft against my real experience and approve it for downloading. I will verify it again before applying.
+                  </label>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!quickTailorApproved || quickTailorDownloading !== null}
+                      onClick={() => {
+                        const [jobForModal] = (showEmailCollectedJobs
+                          ? allCollectedJobs.filter((job) => job.application_method === "email" && job.contact_email)
+                          : showAllCollectedJobs ? allCollectedJobs : topCollectedJobs
+                        ).filter((job) => (job.external_id ?? job.title) === quickTailorJobKey);
+                        downloadQuickTailorResume("docx", jobForModal?.title ?? "Role", jobForModal?.company ?? "Company");
+                      }}
+                      className="rounded-lg border border-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-300 hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {quickTailorDownloading === "docx" ? "Downloading…" : "Download Word"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!quickTailorApproved || quickTailorDownloading !== null}
+                      onClick={() => {
+                        const [jobForModal] = (showEmailCollectedJobs
+                          ? allCollectedJobs.filter((job) => job.application_method === "email" && job.contact_email)
+                          : showAllCollectedJobs ? allCollectedJobs : topCollectedJobs
+                        ).filter((job) => (job.external_id ?? job.title) === quickTailorJobKey);
+                        downloadQuickTailorResume("pdf", jobForModal?.title ?? "Role", jobForModal?.company ?? "Company");
+                      }}
+                      className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {quickTailorDownloading === "pdf" ? "Downloading…" : "Download PDF"}
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Next step: tap &quot;Review Original Job&quot; on the card, then upload this file when the site asks for your resume.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </AuthGuard>
   );
