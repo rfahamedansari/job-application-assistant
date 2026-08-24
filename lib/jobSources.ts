@@ -15,6 +15,10 @@ export type CollectedJob = {
   // AI-parsing step for these jobs when deciding if it's an email
   // application, same as a manually pasted recruiter post would get.
   contact_email?: string | null;
+  // Set to "email" whenever a source gives us a direct contact address
+  // (currently Bayt and NaukriGulf), so these jobs correctly appear under
+  // the Email Apply tab instead of only being reachable via a website link.
+  application_method?: "email" | "website" | null;
 };
 
 type SourceResult = {
@@ -363,6 +367,7 @@ async function collectApifyBayt(
         salary_text: text(item.salaryText) || null,
         posted_at: text(item.postedDate) || text(item.postedAt) || null,
         contact_email: text(item.contactEmail) || null,
+        application_method: text(item.contactEmail) ? "email" : "website",
       }];
     });
 
@@ -435,6 +440,7 @@ async function collectApifyNaukriGulf(
         salary_text: text(item.salaryMinText) || null,
         posted_at: text(item.postedAt) || null,
         contact_email: text(item.contactEmail) || null,
+        application_method: text(item.contactEmail) ? "email" : "website",
       }];
     });
 
@@ -605,10 +611,32 @@ export async function collectJobs(
     }
   }
 
-  const unique = new Map<string, CollectedJob>();
+// Applies only to LinkedIn results, per your request — Indeed, GulfTalent,
+// and JSearch descriptions are not scanned. Bayt and NaukriGulf already get
+// a real, structured contact_email directly from their own Apify actors
+// (see collectApifyBayt/collectApifyNaukriGulf above), so they don't need
+// this fallback either.
+const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+function detectEmailInDescription(job: CollectedJob): CollectedJob {
+  if (job.contact_email) return job;
+  if (!job.source.includes("LinkedIn")) return job;
+
+  const match = job.job_description.match(EMAIL_PATTERN);
+  if (!match) return job;
+
+  return {
+    ...job,
+    contact_email: match[0],
+    application_method: "email",
+  };
+}
+
+const unique = new Map<string, CollectedJob>();
   const allowedCountries = new Set<CollectedJob["country"]>(["United Arab Emirates", ...secondaryCountries]);
-  for (const job of results.flatMap((result) => result.jobs)) {
-    if (!allowedCountries.has(job.country)) continue;
+  for (const rawJob of results.flatMap((result) => result.jobs)) {
+    if (!allowedCountries.has(rawJob.country)) continue;
+    const job = detectEmailInDescription(rawJob);
     const key = job.job_url || `${job.title}|${job.company}|${job.location}`.toLowerCase();
     if (job.title && job.job_url && !unique.has(key)) unique.set(key, job);
   }
