@@ -214,8 +214,8 @@ export default function KeywordSearchPage() {
 
   return (
     <AuthGuard>
-      <main className="ml-72 min-h-screen bg-slate-950 px-8 py-10 text-slate-100">
-        <div className="mx-auto max-w-5xl">
+      <main className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="mx-auto max-w-5xl px-8 py-10">
           <h1 className="text-2xl font-bold">Keyword Search</h1>
           <p className="mt-2 text-sm text-slate-400">
             Search any keyword across every connected source — independent of your
