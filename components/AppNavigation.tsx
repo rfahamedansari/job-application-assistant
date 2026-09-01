@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 const navItems = [
   { label: "Dashboard", href: "/" },
   { label: "Daily Jobs", href: "/jobs" },
+  { label: "Keyword Search", href: "/keyword-search" },
   { label: "Resume Library", href: "/resumes" },
   { label: "Applications", href: "/applications" },
   { label: "Profile & Preferences", href: "/profile" },
