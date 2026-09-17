@@ -34,6 +34,7 @@ export default function KeywordSearchPage() {
   const [nowMs] = useState(() => Date.now());
 
   const [quickTailorJobKey, setQuickTailorJobKey] = useState<string | null>(null);
+  const [copiedJobKey, setCopiedJobKey] = useState<string | null>(null);
   const [quickTailorLoading, setQuickTailorLoading] = useState(false);
   const [quickTailorError, setQuickTailorError] = useState("");
   const [quickTailorResult, setQuickTailorResult] = useState<{
@@ -113,6 +114,19 @@ export default function KeywordSearchPage() {
       );
     } finally {
       setIsSearching(false);
+    }
+  }
+
+  async function copyJobLink(key: string, url: string) {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedJobKey(key);
+      setTimeout(() => setCopiedJobKey((current) => (current === key ? null : current)), 2000);
+    } catch {
+      // Clipboard access can be blocked by browser permissions — fail
+      // quietly rather than showing an alarming error for a low-stakes
+      // convenience action.
     }
   }
 
@@ -334,6 +348,13 @@ export default function KeywordSearchPage() {
                       <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
                         Review Original Job
                       </a>
+                      <button
+                        type="button"
+                        onClick={() => copyJobLink(job.external_id, job.job_url)}
+                        className="inline-flex rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800"
+                      >
+                        {copiedJobKey === job.external_id ? "Copied!" : "Copy Link"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => runQuickTailor(job)}
