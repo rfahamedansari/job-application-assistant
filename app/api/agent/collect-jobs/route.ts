@@ -85,7 +85,16 @@ export async function POST(request: NextRequest) {
       }))
       .sort((a, b) => b.match.score - a.match.score || Date.parse(b.posted_at ?? "") - Date.parse(a.posted_at ?? ""));
 
-    const ranked = allRanked.slice(0, 10);
+    // Top 10 excludes jobs with no reliable posted date — a job you can't
+    // verify the age of shouldn't be recommended as a top pick over ones
+    // you can. Undated jobs are still fully visible under "All Jobs", just
+    // not promoted into the ranked shortlist.
+    const rankedWithVerifiedDate = allRanked.filter((job) => {
+      const parsed = job.posted_at ? Date.parse(job.posted_at) : NaN;
+      return !Number.isNaN(parsed);
+    });
+
+    const ranked = rankedWithVerifiedDate.slice(0, 10);
 
     return NextResponse.json({
       success: true,
