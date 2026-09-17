@@ -13,6 +13,7 @@ const navItems = [
   { label: "Recruiters", href: "/recruiters" },
   { label: "Interview Prep", href: "/interview-prep" },
   { label: "Analytics", href: "/analytics" },
+  { label: "Admin", href: "/admin" },
 ];
 
 const hiddenRoutes = [
