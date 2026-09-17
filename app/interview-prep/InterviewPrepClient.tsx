@@ -90,6 +90,7 @@ export default function InterviewPrepClient() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [savingRecordId, setSavingRecordId] = useState<string | null>(null);
 
   function toInputDate(value: string | null) {
@@ -224,6 +225,50 @@ export default function InterviewPrepClient() {
     if (selected) {
       setRole(selected.role);
       setCompany(selected.company);
+    }
+  }
+
+  async function handleGenerateWithAI() {
+    if (!applicationId) {
+      setMessage("Select an application first so there's a job description to work from.");
+      setMessageType("error");
+      return;
+    }
+
+    setIsGenerating(true);
+    setMessage("");
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Your session has expired. Please sign in again.");
+
+      const response = await fetch("/api/agent/generate-interview-prep", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ application_id: applicationId }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error ?? "Generation failed.");
+      }
+
+      setTechnicalTopics(result.technical_topics ?? "");
+      setHrQuestions(result.hr_questions ?? "");
+      setStarExamples(result.star_examples ?? "");
+      setQuestionsToAsk(result.questions_to_ask ?? "");
+
+      setMessage("Draft generated — review and edit before saving. STAR examples are grounded in your actual resume; verify them before an interview.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unexpected error while generating.");
+      setMessageType("error");
+    } finally {
+      setIsGenerating(false);
     }
   }
 
@@ -560,6 +605,20 @@ export default function InterviewPrepClient() {
                       </option>
                     ))}
                   </select>
+
+                  <button
+                    type="button"
+                    onClick={handleGenerateWithAI}
+                    disabled={!applicationId || isGenerating}
+                    className="w-full rounded-lg border border-purple-500 px-4 py-3 text-sm font-semibold text-purple-300 hover:bg-purple-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isGenerating ? "Generating…" : "Generate with AI"}
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    Fills the fields below from the selected application&apos;s saved job
+                    description and your resume. Review everything before saving —
+                    especially the STAR examples.
+                  </p>
 
                   <input
                     value={role}
