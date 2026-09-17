@@ -231,6 +231,7 @@ const [bestResumeResults, setBestResumeResults] =
   // since posted" math stays pure during render, per React's rules.
   const [nowMs] = useState(() => Date.now());
   const [quickTailorJobKey, setQuickTailorJobKey] = useState<string | null>(null);
+  const [copiedJobKey, setCopiedJobKey] = useState<string | null>(null);
   const [quickTailorLoading, setQuickTailorLoading] = useState(false);
   const [quickTailorError, setQuickTailorError] = useState("");
   const [quickTailorResult, setQuickTailorResult] = useState<{
@@ -649,25 +650,63 @@ const [bestResumeResults, setBestResumeResults] =
         try {
           const { data: { user } } = await supabase.auth.getUser();
           if (!user) throw new Error("Your session has expired. Please sign in again.");
-          const { error: applicationError } = await supabase.from("applications").insert({
-            user_id: user.id,
-            job_id: result.job.id,
-            resume_id: null,
-            role: processedJob.title,
-            company: processedJob.company,
-            source: processedJob.source,
-            job_url: processedJob.job_url,
-            status: "Ready for Review",
-            // The current database schema requires this timestamp even before
-            // submission. Status remains "Ready for Review", so it is not
-            // counted or presented as an applied vacancy.
-            applied_at: new Date().toISOString(),
-          });
+          const { data: newApplication, error: applicationError } = await supabase
+            .from("applications")
+            .insert({
+              user_id: user.id,
+              job_id: result.job.id,
+              resume_id: null,
+              role: processedJob.title,
+              company: processedJob.company,
+              source: processedJob.source,
+              job_url: processedJob.job_url,
+              status: "Ready for Review",
+              // The current database schema requires this timestamp even before
+              // submission. Status remains "Ready for Review", so it is not
+              // counted or presented as an applied vacancy.
+              applied_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
           if (applicationError) {
             throw new Error(applicationError.message);
           }
-          setMessage("Email vacancy saved to Applications → Email Applications for resume and email approval.");
+
+          setMessage("Email vacancy saved. Tailoring your resume for it now…");
           setMessageType("success");
+
+          // Auto-tailor right away so it's waiting for review in Applications
+          // instead of requiring a separate manual "Tailor Resume" click.
+          // This is fire-and-forget: a failure here doesn't affect the job
+          // save that already succeeded, and the user can still tailor
+          // manually from Applications if this step fails silently.
+          if (newApplication?.id) {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                const tailorResponse = await fetch("/api/agent/tailor-resume", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${session.access_token}`,
+                  },
+                  body: JSON.stringify({ application_id: newApplication.id }),
+                });
+                const tailorResult = await tailorResponse.json().catch(() => ({}));
+                if (tailorResponse.ok && tailorResult.success) {
+                  setMessage("Email vacancy saved and resume auto-tailored — open Applications to review and approve it.");
+                } else {
+                  setMessage(
+                    `Email vacancy saved to Applications, but auto-tailoring didn't complete (${
+                      tailorResult.error ?? "unknown error"
+                    }). You can tailor it manually from Applications.`
+                  );
+                }
+              }
+            } catch {
+              setMessage("Email vacancy saved to Applications. Auto-tailoring didn't complete — you can tailor it manually.");
+            }
+          }
         } catch (applicationCreationError) {
           setMessage(
             `Job saved successfully, but the email approval queue entry could not be created: ${
@@ -959,6 +998,19 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
       matchesDate
     );
   });
+
+  async function copyJobLink(key: string, url: string) {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedJobKey(key);
+      setTimeout(() => setCopiedJobKey((current) => (current === key ? null : current)), 2000);
+    } catch {
+      // Clipboard access can be blocked by browser permissions — fail
+      // quietly rather than showing an alarming error for a low-stakes
+      // convenience action.
+    }
+  }
 
   async function runQuickTailor(job: { external_id?: string; id?: string; title: string; company: string; job_description?: string | null }) {
     const key = job.external_id ?? job.id ?? job.title;
@@ -1312,6 +1364,13 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                         <a href={job.job_url} target="_blank" rel="noopener noreferrer" className="inline-flex rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">
                           Review Original Job
                         </a>
+                        <button
+                          type="button"
+                          onClick={() => copyJobLink(job.external_id, job.job_url)}
+                          className="inline-flex rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800"
+                        >
+                          {copiedJobKey === job.external_id ? "Copied!" : "Copy Link"}
+                        </button>
                         <button
                           type="button"
                           onClick={() => runQuickTailor(job)}
@@ -1911,6 +1970,14 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                             >
                               Open Original Job
                             </a>
+
+                            <button
+                              type="button"
+                              onClick={() => copyJobLink(job.id, job.job_url)}
+                              className="rounded-lg border border-slate-600 px-5 py-3 font-semibold text-slate-300 hover:bg-slate-800"
+                            >
+                              {copiedJobKey === job.id ? "Copied!" : "Copy Link"}
+                            </button>
 
                             <button
                               type="button"
