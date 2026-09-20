@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     const query = typeof body.query === "string"
       ? body.query.trim().replace(/\s+/g, " ").slice(0, 80) || "Project Manager"
       : "Project Manager";
-    const requestedUaePages = typeof body.uae_pages === "number" ? body.uae_pages : 6;
-    const uaePages = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
+    const requestedUaePages = typeof body.uae_pages === "number" ? body.uae_pages : 3;
+    const uaePages = Math.min(3, Math.max(1, Math.trunc(requestedUaePages) || 3));
     const secondaryCountries: Array<"Saudi Arabia" | "Qatar" | "Oman"> = [];
     if (body.include_saudi === true) secondaryCountries.push("Saudi Arabia");
     if (body.include_qatar === true) secondaryCountries.push("Qatar");
