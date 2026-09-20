@@ -245,13 +245,13 @@ async function runApifyActor(
   const response = await fetch(
     `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(
       token
-    )}&timeout=60`,
+    )}&timeout=12`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
       cache: "no-store",
-      signal: AbortSignal.timeout(65_000),
+      signal: AbortSignal.timeout(15_000),
     }
   );
 
@@ -479,7 +479,7 @@ async function collectCrustdata(
         limit: 25,
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -698,7 +698,7 @@ export async function collectJobs(
   // Split the requested UAE page budget across the query phrases so total
   // API usage stays roughly the same as a single-phrase search, while
   // covering more of the ways this role actually gets titled.
-  const uaePageCount = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
+  const uaePageCount = Math.min(3, Math.max(1, Math.trunc(requestedUaePages) || 3));
   const pagesPerQuery = Math.max(1, Math.ceil(uaePageCount / normalizedQueries.length));
 
   const uaeResults = await Promise.all(
