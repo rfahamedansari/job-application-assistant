@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { calculateJobMatch } from "@/lib/jobMatch";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 import { collectJobs } from "@/lib/jobSources";
 
 export const runtime = "nodejs";
@@ -9,6 +10,13 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await requireActiveUser(request.headers.get("authorization"));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authHeader = request.headers.get("authorization");
