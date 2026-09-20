@@ -13,6 +13,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     async function checkSession() {
       const {
         data: { session },
@@ -23,10 +25,22 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         return;
       }
 
-      setIsChecking(false);
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("account_status")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      if (error || !profile || profile.account_status !== "active") {
+        await supabase.auth.signOut();
+        router.replace("/login?error=approval");
+        return;
+      }
+
+      if (mounted) setIsChecking(false);
     }
 
-    checkSession();
+    void checkSession();
 
     const {
       data: { subscription },
@@ -37,6 +51,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, [router]);
@@ -46,9 +61,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
       <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
         <div className="text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400" />
-
           <p className="mt-4 text-sm text-slate-400">
-            Checking your session...
+            Checking your account access...
           </p>
         </div>
       </main>
