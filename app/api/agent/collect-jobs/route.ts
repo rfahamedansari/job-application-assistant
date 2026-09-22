@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { calculateJobMatch } from "@/lib/jobMatch";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 import { collectJobs } from "@/lib/jobSources";
 
 export const runtime = "nodejs";
@@ -9,6 +10,13 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await requireActiveUser(request.headers.get("authorization"));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authHeader = request.headers.get("authorization");
@@ -30,8 +38,8 @@ export async function POST(request: NextRequest) {
     const query = typeof body.query === "string"
       ? body.query.trim().replace(/\s+/g, " ").slice(0, 80) || "Project Manager"
       : "Project Manager";
-    const requestedUaePages = typeof body.uae_pages === "number" ? body.uae_pages : 6;
-    const uaePages = Math.min(6, Math.max(1, Math.trunc(requestedUaePages) || 6));
+    const requestedUaePages = typeof body.uae_pages === "number" ? body.uae_pages : 3;
+    const uaePages = Math.min(3, Math.max(1, Math.trunc(requestedUaePages) || 3));
     const secondaryCountries: Array<"Saudi Arabia" | "Qatar" | "Oman"> = [];
     if (body.include_saudi === true) secondaryCountries.push("Saudi Arabia");
     if (body.include_qatar === true) secondaryCountries.push("Qatar");

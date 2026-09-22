@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -13,6 +14,12 @@ type ProcessJobRequest = {
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await requireActiveUser(request.headers.get("authorization"));
+    } catch (error) {
+      const accessError = describeAccessError(error);
+      return NextResponse.json({ error: accessError.message }, { status: accessError.status });
+    }
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         {
