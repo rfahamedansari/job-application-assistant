@@ -238,8 +238,14 @@ export default function LoginPage() {
 
           <div className="mt-6 border-t border-slate-800 pt-5 text-center">
             <p className="text-sm text-slate-400">
-              New user registration is controlled by
-              the Career OS administrator.
+              New here?{" "}
+              <Link
+                href="/register"
+                className="font-semibold text-cyan-400 hover:text-cyan-300"
+              >
+                Create an account
+              </Link>
+              . Access is granted by the Owner after you sign up.
             </p>
 
             <Link
