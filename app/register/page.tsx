@@ -51,7 +51,7 @@ export default function RegisterPage() {
     }
 
     setMessage(
-      "Registration successful. Please check your email and confirm your account."
+      "Registration successful. Check your email to confirm your account, then wait for the Owner to approve access before you can sign in."
     );
 
     setFullName("");
