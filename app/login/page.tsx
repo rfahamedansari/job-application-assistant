@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import {
+  FormEvent,
+  Suspense,
+  useEffect,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
@@ -56,7 +61,7 @@ function getAccessMessage(errorCode: string | null) {
   }
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -129,13 +134,6 @@ export default function LoginPage() {
         return;
       }
 
-      /*
-       * IMPORTANT:
-       * Authentication alone is not enough.
-       *
-       * The user must also have an active application
-       * access profile.
-       */
       const { data: profile, error: profileError } =
         await supabase
           .from("profiles")
@@ -172,9 +170,6 @@ export default function LoginPage() {
       const accountStatus =
         profile.account_status as AccountStatus;
 
-      /*
-       * Only ACTIVE accounts are allowed into Career OS.
-       */
       if (accountStatus !== "active") {
         await supabase.auth.signOut();
 
@@ -211,10 +206,6 @@ export default function LoginPage() {
         return;
       }
 
-      /*
-       * Account is active.
-       * Only now do we allow access to Career OS.
-       */
       setMessage("Login successful.");
       setMessageType("success");
 
@@ -303,7 +294,6 @@ export default function LoginPage() {
   return (
     <main className="fixed inset-0 z-50 flex min-h-screen items-center justify-center overflow-y-auto bg-slate-950 px-4 py-10 text-slate-100">
       <div className="w-full max-w-md">
-
         <div className="mb-8 text-center">
           <p className="text-sm font-semibold text-cyan-400">
             Ahamed AI Career OS
@@ -320,7 +310,6 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
-
           {message && (
             <div
               className={`mb-5 rounded-xl border px-4 py-3 text-sm ${messageStyles[messageType]}`}
@@ -333,7 +322,6 @@ export default function LoginPage() {
             onSubmit={handleLogin}
             className="space-y-5"
           >
-
             <div>
               <label
                 htmlFor="email"
@@ -358,7 +346,6 @@ export default function LoginPage() {
             </div>
 
             <div>
-
               <div className="mb-2 flex items-center justify-between">
                 <label
                   htmlFor="password"
@@ -405,21 +392,19 @@ export default function LoginPage() {
                 ? "Signing in..."
                 : "Sign In"}
             </button>
-
           </form>
 
           <div className="mt-6 border-t border-slate-800 pt-5 text-center">
-
             <p className="text-sm text-slate-400">
               New here?{" "}
-
               <Link
                 href="/register"
                 className="font-semibold text-cyan-400 hover:text-cyan-300"
               >
                 Create an account
               </Link>
-              . Access is granted by the Owner after you sign up.
+              . Access is granted by the Owner after you
+              sign up.
             </p>
 
             <Link
@@ -428,11 +413,25 @@ export default function LoginPage() {
             >
               Return to Home
             </Link>
-
           </div>
-
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+          <p className="text-sm text-slate-400">
+            Loading login...
+          </p>
+        </main>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
