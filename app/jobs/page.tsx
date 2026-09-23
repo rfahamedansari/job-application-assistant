@@ -597,9 +597,7 @@ const [bestResumeResults, setBestResumeResults] =
     }
 
     if (!processedJob.company?.trim()) {
-      setMessage(
-        "AI could not identify the company. Please verify the post and use Add a Job if needed."
-      );
+      setMessage("AI could not identify the company. Please verify the post and use Add a Job if needed.");
       setMessageType("error");
       return;
     }
@@ -608,10 +606,6 @@ const [bestResumeResults, setBestResumeResults] =
     setMessage("");
 
     try {
-      // Save directly through the authenticated Supabase client.
-      // This uses the same RLS/auth path as the existing "Add a Job" form
-      // and avoids an unnecessary server round-trip for a simple database
-      // insert.
       const {
         data: { user },
         error: userError,
@@ -623,77 +617,67 @@ const [bestResumeResults, setBestResumeResults] =
         return;
       }
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
+      // Use the same authenticated Supabase path as the working "Add a Job"
+      // form. Generate the job ID here so we do not need a server round-trip
+      // or a post-insert SELECT just to obtain the new ID.
+      const jobId = crypto.randomUUID();
 
-      if (sessionError || !session?.access_token) {
-        setMessage("Your session has expired. Please sign in again.");
-        setMessageType("error");
-        return;
-      }
-
-      const response = await fetch("/api/agent/ingest-job", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(processedJob),
+      const { error: jobError } = await supabase.from("jobs").insert({
+        id: jobId,
+        created_by: user.id,
+        title: processedJob.title.trim(),
+        company: processedJob.company.trim(),
+        location: processedJob.location?.trim() || null,
+        country: processedJob.country?.trim() || null,
+        category: processedJob.category?.trim() || "General",
+        source: processedJob.source?.trim() || "Agent",
+        job_url: processedJob.job_url?.trim() || "",
+        job_description: processedJob.job_description?.trim() || null,
+        employment_type: processedJob.employment_type?.trim() || null,
+        salary_text: processedJob.salary_text?.trim() || null,
+        posted_at: processedJob.posted_at || null,
+        source_type: processedJob.source_type ?? "formal_job",
+        application_method:
+          processedJob.application_method ??
+          (processedJob.contact_email ? "email" : "website"),
+        contact_email: processedJob.contact_email?.trim() || null,
+        recruiter_name: processedJob.recruiter_name?.trim() || null,
+        source_post_text: processedJob.source_post_text?.trim() || null,
+        agent_status: "ingested",
+        agent_notes: processedJob.agent_notes?.trim() || null,
+        discovered_at: new Date().toISOString(),
       });
 
-      const result = await response.json().catch(() => ({}));
-
-      if (!response.ok || !result.job?.id) {
-        setMessage(
-          `Processed job could not be saved: ${result.error ?? `Server returned HTTP ${response.status}`}`
-        );
+      if (jobError) {
+        setMessage(`Processed job could not be saved: ${jobError.message}`);
         setMessageType("error");
         return;
       }
 
-      // The job itself is already saved at this point (ingest-job
-      // succeeded above). The email-application step below is a separate,
-      // secondary write. Its own try/catch keeps a failure here from being
-      // mislabeled as "the job could not be saved" — that message is
-      // misleading and previously also skipped resetting the form and
-      // reloading the jobs list, making a successful save look like it
-      // silently disappeared.
-      if (processedJob.application_method === "email" && processedJob.contact_email && result.job?.id) {
+      if (processedJob.application_method === "email" && processedJob.contact_email) {
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) throw new Error("Your session has expired. Please sign in again.");
-          const { data: newApplication, error: applicationError } = await supabase
-            .from("applications")
-            .insert({
-              user_id: user.id,
-              job_id: result.job.id,
-              resume_id: null,
-              role: processedJob.title,
-              company: processedJob.company,
-              source: processedJob.source,
-              job_url: processedJob.job_url,
-              status: "Ready for Review",
-              // The current database schema requires this timestamp even before
-              // submission. Status remains "Ready for Review", so it is not
-              // counted or presented as an applied vacancy.
-              applied_at: new Date().toISOString(),
-            })
-            .select("id")
-            .single();
-          if (applicationError) {
-            throw new Error(applicationError.message);
-          }
+          const { data: newApplication, error: applicationError } =
+            await supabase
+              .from("applications")
+              .insert({
+                user_id: user.id,
+                job_id: jobId,
+                resume_id: null,
+                role: processedJob.title,
+                company: processedJob.company,
+                source: processedJob.source,
+                job_url: processedJob.job_url,
+                status: "Ready for Review",
+                applied_at: new Date().toISOString(),
+              })
+              .select("id")
+              .single();
+
+          if (applicationError) throw new Error(applicationError.message);
 
           setMessage("Email vacancy saved. Tailoring your resume for it now…");
           setMessageType("success");
 
-          // Auto-tailor right away so it's waiting for review in Applications
-          // instead of requiring a separate manual "Tailor Resume" click.
-          // This is fire-and-forget: a failure here doesn't affect the job
-          // save that already succeeded, and the user can still tailor
-          // manually from Applications if this step fails silently.
           if (newApplication?.id) {
             try {
               const { data: { session } } = await supabase.auth.getSession();
@@ -711,9 +695,7 @@ const [bestResumeResults, setBestResumeResults] =
                   setMessage("Email vacancy saved and resume auto-tailored — open Applications to review and approve it.");
                 } else {
                   setMessage(
-                    `Email vacancy saved to Applications, but auto-tailoring didn't complete (${
-                      tailorResult.error ?? "unknown error"
-                    }). You can tailor it manually from Applications.`
+                    `Email vacancy saved to Applications, but auto-tailoring didn't complete (${tailorResult.error ?? "unknown error"}). You can tailor it manually from Applications.`
                   );
                 }
               }
@@ -721,39 +703,31 @@ const [bestResumeResults, setBestResumeResults] =
               setMessage("Email vacancy saved to Applications. Auto-tailoring didn't complete — you can tailor it manually.");
             }
           }
-        } catch (applicationCreationError) {
+        } catch (applicationError) {
           setMessage(
-            `Job saved successfully, but the email approval queue entry could not be created: ${
-              applicationCreationError instanceof Error
-                ? applicationCreationError.message
-                : "Unexpected error"
-            }. Open the job in Daily Jobs and use "Mark as Applied" to add it to Applications manually.`
+            `Job saved successfully, but the email approval queue entry could not be created: ${applicationError instanceof Error ? applicationError.message : "Unexpected error"}.`
           );
           setMessageType("error");
         }
       } else {
-        setMessage(
-          "Processed job saved successfully. Your existing match engine will score it below."
-        );
+        setMessage("Processed job saved successfully. Your existing match engine will score it below.");
         setMessageType("success");
       }
+
       setRawJobText("");
       setAiJobUrl("");
       setProcessedJob(null);
       await loadJobs();
     } catch (error) {
       setMessage(
-        `Processed job could not be saved: ${
-          error instanceof Error
-            ? error.message
-            : "Unexpected error"
-        }`
+        `Processed job could not be saved: ${error instanceof Error ? error.message : "Unexpected error"}`
       );
       setMessageType("error");
     } finally {
       setIsSavingProcessedJob(false);
     }
   }
+
 async function runRealAtsMatch(
   job: Job,
   recommendedResumeId: string | null
