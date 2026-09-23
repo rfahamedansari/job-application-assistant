@@ -1188,7 +1188,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                     Enter any role, collect permitted live vacancies, remove duplicates, and rank the best opportunities against your profile. Auto Apply is OFF and nothing is submitted.
                   </p>
                 </div>
-                <div className="w-full max-w-md space-y-2">
+                <div className="w-full max-w-5xl space-y-2">
                   <label htmlFor="job-search-query" className="block text-sm font-medium text-slate-200">
                     Job title or role
                   </label>
@@ -1202,7 +1202,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                       }}
                       maxLength={80}
                       placeholder="Project Manager, Service Delivery, Telecom..."
-                     className="w-full min-w-[360px] flex-[2] rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
+                     className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
                     />
                     <select
                       value={jobSearchUaePages}
