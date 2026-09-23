@@ -1202,7 +1202,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
                       }}
                       maxLength={80}
                       placeholder="Project Manager, Service Delivery, Telecom..."
-                      className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
+                     className="w-full min-w-[360px] flex-[2] rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white placeholder:text-slate-500"
                     />
                     <select
                       value={jobSearchUaePages}
