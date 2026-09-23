@@ -608,36 +608,61 @@ const [bestResumeResults, setBestResumeResults] =
     setMessage("");
 
     try {
+      // Save directly through the authenticated Supabase client.
+      // This uses the same RLS/auth path as the existing "Add a Job" form
+      // and avoids an unnecessary server round-trip for a simple database
+      // insert.
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-      if (!session?.access_token) {
+      if (userError || !user) {
         setMessage("Please sign in again.");
         setMessageType("error");
         return;
       }
 
-      const response = await fetch("/api/agent/ingest-job", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(processedJob),
-      });
+      const { data: savedJob, error: saveError } = await supabase
+        .from("jobs")
+        .insert({
+          created_by: user.id,
+          title: processedJob.title.trim(),
+          company: processedJob.company.trim(),
+          location: processedJob.location?.trim() || null,
+          country: processedJob.country?.trim() || null,
+          category: processedJob.category?.trim() || "General",
+          source: processedJob.source?.trim() || aiSource || "Agent",
+          job_url: processedJob.job_url?.trim() || "",
+          job_description: processedJob.job_description?.trim() || null,
+          employment_type: processedJob.employment_type?.trim() || null,
+          salary_text: processedJob.salary_text?.trim() || null,
+          posted_at: processedJob.posted_at || null,
+          source_type: processedJob.source_type || "formal_job",
+          application_method:
+            processedJob.application_method ||
+            (processedJob.contact_email ? "email" : "website"),
+          contact_email: processedJob.contact_email?.trim() || null,
+          recruiter_name: processedJob.recruiter_name?.trim() || null,
+          source_post_text: processedJob.source_post_text?.trim() || null,
+          agent_status: "ingested",
+          agent_notes: processedJob.agent_notes?.trim() || null,
+          discovered_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
 
-      const result = await response.json();
-
-      if (!response.ok) {
+      if (saveError || !savedJob?.id) {
         setMessage(
           `Processed job could not be saved: ${
-            result.error ?? "Unknown error"
+            saveError?.message ?? "The database did not return the saved job."
           }`
         );
         setMessageType("error");
         return;
       }
+
+      const result = { job: savedJob };
 
       // The job itself is already saved at this point (ingest-job
       // succeeded above). The email-application step below is a separate,
