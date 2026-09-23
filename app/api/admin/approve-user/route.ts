@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+
 import {
   createAdminClient,
+  createUserScopedClient,
   describeAccessError,
   requireOwner,
 } from "@/lib/serverAuth";
@@ -10,6 +12,15 @@ type AccountStatus = "active" | "disabled" | "rejected";
 type UpdateUserRequest = {
   user_id?: string;
   account_status?: AccountStatus;
+};
+
+type OwnerProfile = {
+  id: string;
+  full_name: string | null;
+  role: string;
+  account_status: string;
+  approved_at: string | null;
+  updated_at: string;
 };
 
 const ALLOWED_STATUSES = new Set<AccountStatus>([
@@ -66,8 +77,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The Owner account can never be disabled or rejected.
-    if (targetUserId === owner.user.id && accountStatus !== "active") {
+    if (
+      targetUserId === owner.user.id &&
+      accountStatus !== "active"
+    ) {
       return NextResponse.json(
         {
           error:
@@ -77,24 +90,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const admin = createAdminClient();
+    const userClient = createUserScopedClient(authHeader);
 
-    // Verify that the target profile exists before attempting the update.
-    const { data: targetProfile, error: lookupError } = await admin
-      .from("profiles")
-      .select("id, role, account_status")
-      .eq("id", targetUserId)
-      .limit(1)
-      .maybeSingle();
+    if (!userClient) {
+      return NextResponse.json(
+        { error: "Invalid authentication session." },
+        { status: 401 }
+      );
+    }
 
-    if (lookupError) {
-      console.error("admin/approve-user profile lookup error:", lookupError);
+    const {
+      data: profiles,
+      error: profilesError,
+    } = await userClient.rpc("owner_list_profiles");
+
+    if (profilesError) {
+      console.error(
+        "admin/approve-user owner_list_profiles error:",
+        profilesError
+      );
 
       return NextResponse.json(
-        { error: "Could not verify the target account." },
+        { error: profilesError.message },
         { status: 500 }
       );
     }
+
+    const targetProfile = (
+      (profiles ?? []) as OwnerProfile[]
+    ).find((profile) => profile.id === targetUserId);
 
     if (!targetProfile) {
       return NextResponse.json(
@@ -103,7 +127,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Never allow an Owner account to be modified through this workflow.
     if (targetProfile.role === "owner") {
       return NextResponse.json(
         {
@@ -114,35 +137,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const now = new Date().toISOString();
-
-    const { data: updatedProfile, error: updateError } = await admin
-      .from("profiles")
-      .update({
-        account_status: accountStatus,
-        approved_at:
-          accountStatus === "active" ? now : null,
-        approved_by:
-          accountStatus === "active" ? owner.user.id : null,
-        updated_at: now,
-      })
-      .eq("id", targetUserId)
-      .select("id, account_status, approved_at, approved_by")
-      .limit(1)
-      .maybeSingle();
+    const { error: updateError } =
+      await userClient.rpc(
+        "owner_update_user_access",
+        {
+          target_user_id: targetUserId,
+          new_role: targetProfile.role,
+          new_account_status: accountStatus,
+        }
+      );
 
     if (updateError) {
-      console.error("admin/approve-user update error:", updateError);
+      console.error(
+        "admin/approve-user owner_update_user_access error:",
+        updateError
+      );
 
       return NextResponse.json(
         { error: updateError.message },
-        { status: 500 }
-      );
-    }
-
-    if (!updatedProfile) {
-      return NextResponse.json(
-        { error: "The account status could not be updated." },
         { status: 500 }
       );
     }
@@ -153,10 +165,12 @@ export async function POST(request: NextRequest) {
         accountStatus === "active"
           ? "User approved successfully."
           : `User account changed to ${accountStatus}.`,
-      user: updatedProfile,
     });
   } catch (error) {
-    console.error("admin/approve-user unexpected error:", error);
+    console.error(
+      "admin/approve-user unexpected error:",
+      error
+    );
 
     return NextResponse.json(
       {
