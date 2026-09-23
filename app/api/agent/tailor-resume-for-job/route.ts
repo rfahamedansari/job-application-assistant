@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 // Quick-tailor for a job the user hasn't saved as an Application yet — used
@@ -19,13 +19,13 @@ type TailorForJobRequest = {
 
 export async function POST(request: NextRequest) {
   try {
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    const openaiApiKey = process.env.OPENAI_API_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!anthropicApiKey) {
+    if (!openaiApiKey) {
       return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY is not configured." },
+        { error: "OPENAI_API_KEY is not configured." },
         { status: 500 }
       );
     }
@@ -106,11 +106,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const anthropic = new Anthropic({ apiKey: anthropicApiKey });
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 8000,
-      system: `
+    const openai = new OpenAI({ apiKey: openaiApiKey });
+    const response = await openai.responses.create({
+      model: "gpt-5.6-terra",
+      max_output_tokens: 8000,
+      instructions: `
 You are the Resume Tailoring Agent for Ahamed AI Career OS.
 
 Compare the supplied real resume with the supplied real job description and prepare a truthful ATS-friendly tailored resume draft.
@@ -203,10 +203,7 @@ Required JSON format:
   "tailored_resume": ""
 }
       `.trim(),
-      messages: [
-        {
-          role: "user",
-          content: `
+      input: `
 JOB TITLE:
 ${title}
 
@@ -227,15 +224,9 @@ ${resume.category ?? ""}
 SOURCE RESUME:
 ${resume.resume_text.slice(0, 50000)}
           `.trim(),
-        },
-      ],
     });
 
-    const outputText = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("")
-      .trim();
+    const outputText = response.output_text?.trim() ?? "";
 
     if (!outputText) {
       return NextResponse.json(
