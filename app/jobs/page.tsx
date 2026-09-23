@@ -623,6 +623,17 @@ const [bestResumeResults, setBestResumeResults] =
         return;
       }
 
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        setMessage("Your session has expired. Please sign in again.");
+        setMessageType("error");
+        return;
+      }
+
       const response = await fetch("/api/agent/ingest-job", {
         method: "POST",
         headers: {
