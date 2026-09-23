@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
 
     const openai = new OpenAI({ apiKey: openaiApiKey });
     const response = await openai.responses.create({
-      model: "gpt-5.6-terra",
+      model: "gpt-5",
       max_output_tokens: 8000,
       instructions: `
 You are the Resume Tailoring Agent for Ahamed AI Career OS.
