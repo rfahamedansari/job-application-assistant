@@ -623,46 +623,67 @@ const [bestResumeResults, setBestResumeResults] =
         return;
       }
 
-      const { data: savedJob, error: saveError } = await supabase
-        .from("jobs")
-        .insert({
-          created_by: user.id,
-          title: processedJob.title.trim(),
-          company: processedJob.company.trim(),
-          location: processedJob.location?.trim() || null,
-          country: processedJob.country?.trim() || null,
-          category: processedJob.category?.trim() || "General",
-          source: processedJob.source?.trim() || aiSource || "Agent",
-          job_url: processedJob.job_url?.trim() || "",
-          job_description: processedJob.job_description?.trim() || null,
-          employment_type: processedJob.employment_type?.trim() || null,
-          salary_text: processedJob.salary_text?.trim() || null,
-          posted_at: processedJob.posted_at || null,
-          source_type: processedJob.source_type || "formal_job",
-          application_method:
-            processedJob.application_method ||
-            (processedJob.contact_email ? "email" : "website"),
-          contact_email: processedJob.contact_email?.trim() || null,
-          recruiter_name: processedJob.recruiter_name?.trim() || null,
-          source_post_text: processedJob.source_post_text?.trim() || null,
-          agent_status: "ingested",
-          agent_notes: processedJob.agent_notes?.trim() || null,
-          discovered_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
+      const jobToSave = {
+        created_by: user.id,
+        title: processedJob.title.trim(),
+        company: processedJob.company.trim(),
+        location: processedJob.location?.trim() || null,
+        country: processedJob.country?.trim() || null,
+        category: processedJob.category?.trim() || "General",
+        source: processedJob.source?.trim() || aiSource || "Agent",
+        job_url: processedJob.job_url?.trim() || "",
+        job_description: processedJob.job_description?.trim() || null,
+        employment_type: processedJob.employment_type?.trim() || null,
+        salary_text: processedJob.salary_text?.trim() || null,
+        // AI is instructed to return null unless the date is reliable.
+        posted_at: processedJob.posted_at || null,
+        source_type: processedJob.source_type || "formal_job",
+        application_method:
+          processedJob.application_method ||
+          (processedJob.contact_email ? "email" : "website"),
+        contact_email: processedJob.contact_email?.trim() || null,
+        recruiter_name: processedJob.recruiter_name?.trim() || null,
+        source_post_text: processedJob.source_post_text?.trim() || null,
+        agent_status: "ingested",
+        agent_notes: processedJob.agent_notes?.trim() || null,
+        discovered_at: new Date().toISOString(),
+      };
 
-      if (saveError || !savedJob?.id) {
-        setMessage(
-          `Processed job could not be saved: ${
-            saveError?.message ?? "The database did not return the saved job."
-          }`
-        );
+      // Do not request a row back from INSERT. INSERT permission and SELECT
+      // permission are separate RLS checks. The job only needs to be written;
+      // loadJobs() will read it using the user's normal SELECT policy.
+      const { error: saveError } = await supabase
+        .from("jobs")
+        .insert(jobToSave);
+
+      if (saveError) {
+        setMessage(`Processed job could not be saved: ${saveError.message}`);
         setMessageType("error");
         return;
       }
 
-      const result = { job: savedJob };
+      // The job is saved. Re-read the user's jobs to obtain its id for the
+      // optional email-application workflow.
+      const { data: matchingJobs, error: lookupError } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("created_by", user.id)
+        .eq("title", jobToSave.title)
+        .eq("company", jobToSave.company)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (lookupError) {
+        setMessage("Processed job saved successfully. It will appear in Daily Jobs after refresh.");
+        setMessageType("success");
+        setRawJobText("");
+        setAiJobUrl("");
+        setProcessedJob(null);
+        await loadJobs();
+        return;
+      }
+
+      const result = { job: matchingJobs?.[0] ?? null };
 
       // The job itself is already saved at this point (ingest-job
       // succeeded above). The email-application step below is a separate,
