@@ -27,55 +27,36 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as IngestPayload;
 
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    const supabaseKey =
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        {
-          error: "Supabase environment variables are missing.",
-        },
+        { error: "Supabase environment variables are missing." },
         { status: 500 }
       );
     }
 
-    const authHeader =
-      request.headers.get("authorization");
+    const authHeader = request.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        {
-          error: "Missing authentication token.",
-        },
+        { error: "Missing authentication token." },
         { status: 401 }
       );
     }
 
-    /*
-      IMPORTANT:
-      Pass the user's Bearer token into the Supabase client.
-
-      This makes database operations run as the
-      authenticated user instead of the anonymous role.
-    */
-    const supabase = createClient(
-      supabaseUrl,
-      supabaseKey,
-      {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: {
+        headers: {
+          Authorization: authHeader,
         },
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      }
-    );
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
 
     const {
       data: { user },
@@ -84,9 +65,7 @@ export async function POST(request: NextRequest) {
 
     if (userError || !user) {
       return NextResponse.json(
-        {
-          error: "Invalid or expired session.",
-        },
+        { error: "Invalid or expired session." },
         { status: 401 }
       );
     }
@@ -96,96 +75,69 @@ export async function POST(request: NextRequest) {
 
     if (!title) {
       return NextResponse.json(
-        {
-          error: "Job title is required.",
-        },
+        { error: "Job title is required." },
         { status: 400 }
       );
     }
 
     if (!company) {
       return NextResponse.json(
-        {
-          error: "Company is required.",
-        },
+        { error: "Company is required." },
         { status: 400 }
       );
     }
 
-    const sourceType =
-      body.source_type ?? "formal_job";
-
+    const sourceType = body.source_type ?? "formal_job";
     const applicationMethod =
       body.application_method ??
       (body.contact_email ? "email" : "website");
 
-    const { data, error } = await supabase
+    // Use select() rather than select().single().
+    // The INSERT and SELECT RLS policies are separate checks. If a future
+    // policy change allows the insert but restricts the read-back, .single()
+    // can make a successful insert look like a failed save.
+    const insertResult = await supabase
       .from("jobs")
       .insert({
         created_by: user.id,
-
         title,
         company,
-
-        location:
-          body.location?.trim() || null,
-
-        country:
-          body.country?.trim() || null,
-
-        category:
-          body.category?.trim() || "General",
-
-        source:
-          body.source?.trim() || "Agent",
-
-        job_url:
-          body.job_url?.trim() || "",
-
-        job_description:
-          body.job_description?.trim() || null,
-
-        employment_type:
-          body.employment_type?.trim() || null,
-
-        salary_text:
-          body.salary_text?.trim() || null,
-
-        posted_at:
-          body.posted_at || null,
-
+        location: body.location?.trim() || null,
+        country: body.country?.trim() || null,
+        category: body.category?.trim() || "General",
+        source: body.source?.trim() || "Agent",
+        job_url: body.job_url?.trim() || "",
+        job_description: body.job_description?.trim() || null,
+        employment_type: body.employment_type?.trim() || null,
+        salary_text: body.salary_text?.trim() || null,
+        posted_at: body.posted_at || null,
         source_type: sourceType,
-
-        application_method:
-          applicationMethod,
-
-        contact_email:
-          body.contact_email?.trim() || null,
-
-        recruiter_name:
-          body.recruiter_name?.trim() || null,
-
-        source_post_text:
-          body.source_post_text?.trim() || null,
-
-        external_id:
-          body.external_id?.trim() || null,
-
+        application_method: applicationMethod,
+        contact_email: body.contact_email?.trim() || null,
+        recruiter_name: body.recruiter_name?.trim() || null,
+        source_post_text: body.source_post_text?.trim() || null,
+        external_id: body.external_id?.trim() || null,
         agent_status: "ingested",
-
-        agent_notes:
-          body.agent_notes?.trim() || null,
-
-        discovered_at:
-          new Date().toISOString(),
+        agent_notes: body.agent_notes?.trim() || null,
+        discovered_at: new Date().toISOString(),
       })
-      .select()
-      .single();
+      .select();
+
+    const insertedJob = insertResult.data?.[0] ?? null;
+    const error = insertResult.error;
 
     if (error) {
       return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
+    }
+
+    if (!insertedJob) {
+      return NextResponse.json(
         {
-          error: error.message,
+          error:
+            "The job was saved, but could not be read back because of a database permissions (RLS) mismatch on the jobs table. Please refresh the Jobs list.",
         },
         { status: 500 }
       );
@@ -193,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      job: data,
+      job: insertedJob,
     });
   } catch (error) {
     return NextResponse.json(
