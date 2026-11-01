@@ -1018,6 +1018,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
+        signal: AbortSignal.timeout(55_000),
         body: JSON.stringify({
           title: job.title,
           company: job.company,
@@ -1033,8 +1034,11 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
 
       setQuickTailorResult(result.tailoring);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error while tailoring.";
       setQuickTailorError(
-        error instanceof Error ? error.message : "Unexpected error while tailoring."
+        /timeout|timed out|abort/i.test(message)
+          ? "Resume tailoring timed out after 55 seconds. Please retry; Claude is tried first and OpenAI is used automatically if Claude fails."
+          : message
       );
     } finally {
       setQuickTailorLoading(false);
