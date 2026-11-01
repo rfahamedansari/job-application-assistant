@@ -11,6 +11,30 @@ type ResumeTailoringResult = {
   provider: "claude" | "openai";
 };
 
+function isValidJsonObject(text: string): boolean {
+  const cleaned = text
+    .replace(/^\`\`\`json/i, "")
+    .replace(/^\`\`\`/i, "")
+    .replace(/\`\`\`$/, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return true;
+  } catch {
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1));
+        return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed));
+      } catch {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
 
@@ -47,6 +71,9 @@ export async function generateResumeTailoring({
       if (!outputText) {
         throw new Error("Claude returned an empty response.");
       }
+      if (!isValidJsonObject(outputText)) {
+        throw new Error("Claude returned invalid JSON; trying the OpenAI fallback.");
+      }
 
       return { outputText, provider: "claude" };
     } catch (claudeError) {
@@ -76,6 +103,9 @@ export async function generateResumeTailoring({
 
     if (!outputText) {
       throw new Error("OpenAI returned an empty response.");
+    }
+    if (!isValidJsonObject(outputText)) {
+      throw new Error("OpenAI returned invalid JSON. Check the model response and try again.");
     }
 
     return { outputText, provider: "openai" };
