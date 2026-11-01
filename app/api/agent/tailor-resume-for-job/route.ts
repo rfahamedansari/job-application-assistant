@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import OpenAI from "openai";
+import { generateResumeTailoring } from "@/lib/ai/resumeTailoring";
 import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 // Quick-tailor for a job the user hasn't saved as an Application yet — used
@@ -19,13 +19,12 @@ type TailorForJobRequest = {
 
 export async function POST(request: NextRequest) {
   try {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!openaiApiKey) {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured." },
+        { error: "Configure ANTHROPIC_API_KEY and/or OPENAI_API_KEY to enable resume tailoring." },
         { status: 500 }
       );
     }
@@ -106,11 +105,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-    const response = await openai.responses.create({
-      model: "gpt-5",
-      max_output_tokens: 8000,
-      instructions: `
+    const { outputText, provider } = await generateResumeTailoring({
+      systemPrompt: `
 You are the Resume Tailoring Agent for Ahamed AI Career OS.
 
 Compare the supplied real resume with the supplied real job description and prepare a truthful ATS-friendly tailored resume draft.
@@ -203,7 +199,7 @@ Required JSON format:
   "tailored_resume": ""
 }
       `.trim(),
-      input: `
+      userPrompt: `
 JOB TITLE:
 ${title}
 
@@ -225,8 +221,7 @@ SOURCE RESUME:
 ${resume.resume_text.slice(0, 50000)}
           `.trim(),
     });
-
-    const outputText = response.output_text?.trim() ?? "";
+    console.info(`Resume tailoring completed with ${provider}.`);
 
     if (!outputText) {
       return NextResponse.json(
