@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
+import { generateResumeTailoring } from "@/lib/ai/resumeTailoring";
 import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
 type TailorResumeRequest = {
@@ -9,13 +9,12 @@ type TailorResumeRequest = {
 
 export async function POST(request: NextRequest) {
   try {
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!anthropicApiKey) {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
       return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY is not configured." },
+        { error: "Configure ANTHROPIC_API_KEY and/or OPENAI_API_KEY to enable resume tailoring." },
         { status: 500 }
       );
     }
@@ -170,11 +169,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const anthropic = new Anthropic({ apiKey: anthropicApiKey });
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 8000,
-      system: `
+    const { outputText, provider } = await generateResumeTailoring({
+      systemPrompt: `
 You are the Resume Tailoring Agent for Ahamed AI Career OS.
 
 Compare the supplied real resume with the supplied real job description and prepare a truthful ATS-friendly tailored resume draft.
@@ -272,10 +268,7 @@ Required JSON format:
   "tailored_resume": ""
 }
       `.trim(),
-      messages: [
-        {
-          role: "user",
-          content: `
+      userPrompt: `
 JOB TITLE:
 ${job.title ?? application.role}
 
@@ -296,15 +289,8 @@ ${resume.category ?? ""}
 SOURCE RESUME:
 ${resume.resume_text.slice(0, 50000)}
           `.trim(),
-        },
-      ],
     });
-
-    const outputText = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("")
-      .trim();
+    console.info(`Resume tailoring completed with ${provider}.`);
 
     if (!outputText) {
       return NextResponse.json(
