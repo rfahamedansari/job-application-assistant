@@ -278,7 +278,7 @@ COMPANY:
 ${job.company ?? application.company}
 
 JOB DESCRIPTION:
-${job.job_description.slice(0, 30000)}
+${job.job_description.slice(0, 12000)}
 
 ========================================
 
@@ -289,7 +289,7 @@ SOURCE RESUME CATEGORY:
 ${resume.category ?? ""}
 
 SOURCE RESUME:
-${resume.resume_text.slice(0, 50000)}
+${resume.resume_text.slice(0, 22000)}
           `.trim(),
     });
     console.info(`Resume tailoring completed with ${provider}.`);
