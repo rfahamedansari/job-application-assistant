@@ -35,8 +35,8 @@ function isValidJsonObject(text: string): boolean {
   return false;
 }
 
-const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6.1-terra";
 
 /**
  * Claude-first provider with automatic OpenAI fallback.
@@ -53,12 +53,12 @@ export async function generateResumeTailoring({
     try {
       const anthropic = new Anthropic({
         apiKey: anthropicApiKey,
-        timeout: 18_000,
+        timeout: 24_000,
         maxRetries: 0,
       });
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
-        max_tokens: 8000,
+        max_tokens: 4500,
         system: systemPrompt,
         messages: [{ role: "user", content: userPrompt }],
       });
@@ -94,7 +94,7 @@ export async function generateResumeTailoring({
   }
 
   try {
-    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 25_000, maxRetries: 0 });
+    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 26_000, maxRetries: 0 });
     const response = await openai.responses.create({
       model: OPENAI_MODEL,
       instructions: systemPrompt,
