@@ -53,7 +53,8 @@ export async function generateResumeTailoring({
     try {
       const anthropic = new Anthropic({
         apiKey: anthropicApiKey,
-        timeout: 60_000,
+        timeout: 18_000,
+        maxRetries: 0,
       });
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
@@ -93,7 +94,7 @@ export async function generateResumeTailoring({
   }
 
   try {
-    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 60_000 });
+    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 25_000, maxRetries: 0 });
     const response = await openai.responses.create({
       model: OPENAI_MODEL,
       instructions: systemPrompt,
