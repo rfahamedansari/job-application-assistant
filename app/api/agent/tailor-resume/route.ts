@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { generateResumeTailoring } from "@/lib/ai/resumeTailoring";
 import { describeAccessError, requireActiveUser } from "@/lib/serverAuth";
 
+export const maxDuration = 60;
+
 type TailorResumeRequest = {
   application_id?: string;
 };
