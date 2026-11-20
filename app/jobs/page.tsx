@@ -1037,7 +1037,7 @@ function reviewCollectedEmailJob(job: CollectedTopJob) {
       const message = error instanceof Error ? error.message : "Unexpected error while tailoring.";
       setQuickTailorError(
         /timeout|timed out|abort/i.test(message)
-          ? "Resume tailoring timed out after 55 seconds. Please retry; Claude is tried first and OpenAI is used automatically if Claude fails."
+          ? "Resume tailoring timed out after 55 seconds. Please retry. OpenAI is tried first, with Claude as the automatic fallback."
           : message
       );
     } finally {
