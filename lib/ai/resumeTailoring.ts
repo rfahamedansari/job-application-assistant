@@ -117,5 +117,3 @@ export async function generateResumeTailoring({
     );
   }
 }
-
-}
