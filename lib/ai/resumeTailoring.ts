@@ -39,8 +39,8 @@ const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5";
 
 /**
- * Claude-first provider with automatic OpenAI fallback.
- * A provider is considered failed if the request throws or returns no text.
+ * OpenAI-first provider with automatic Claude fallback.
+ * A provider is considered failed if the request throws or returns no valid JSON text.
  */
 export async function generateResumeTailoring({
   systemPrompt,
@@ -49,71 +49,73 @@ export async function generateResumeTailoring({
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   const openaiApiKey = process.env.OPENAI_API_KEY;
 
-  if (anthropicApiKey) {
+  if (openaiApiKey) {
     try {
-      const anthropic = new Anthropic({
-        apiKey: anthropicApiKey,
-        timeout: 18_000,
-        maxRetries: 0,
+      const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 25_000, maxRetries: 0 });
+      const response = await openai.responses.create({
+        model: OPENAI_MODEL,
+        instructions: systemPrompt,
+        input: userPrompt,
       });
-      const response = await anthropic.messages.create({
-        model: CLAUDE_MODEL,
-        max_tokens: 8000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      });
-
-      const outputText = response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("")
-        .trim();
+      const outputText = response.output_text?.trim() ?? "";
 
       if (!outputText) {
-        throw new Error("Claude returned an empty response.");
+        throw new Error("OpenAI returned an empty response.");
       }
       if (!isValidJsonObject(outputText)) {
-        throw new Error("Claude returned invalid JSON; trying the OpenAI fallback.");
+        throw new Error("OpenAI returned invalid JSON; trying the Claude fallback.");
       }
 
-      return { outputText, provider: "claude" };
-    } catch (claudeError) {
-      console.error("Claude resume-tailoring attempt failed; trying OpenAI fallback.", claudeError);
-      if (!openaiApiKey) {
+      return { outputText, provider: "openai" };
+    } catch (openaiError) {
+      console.error("OpenAI resume-tailoring attempt failed; trying Claude fallback.", openaiError);
+      if (!anthropicApiKey) {
         throw new Error(
-          `Claude failed and OPENAI_API_KEY is not configured. ${claudeError instanceof Error ? claudeError.message : "Unknown Claude error"}`
+          `OpenAI failed and ANTHROPIC_API_KEY is not configured. ${openaiError instanceof Error ? openaiError.message : "Unknown OpenAI error"}`
         );
       }
     }
   }
 
-  if (!openaiApiKey) {
+  if (!anthropicApiKey) {
     throw new Error(
-      "No AI provider is configured. Set ANTHROPIC_API_KEY and/or OPENAI_API_KEY in the deployment environment."
+      "No AI provider is configured. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY in the deployment environment."
     );
   }
 
   try {
-    const openai = new OpenAI({ apiKey: openaiApiKey, timeout: 25_000, maxRetries: 0 });
-    const response = await openai.responses.create({
-      model: OPENAI_MODEL,
-      instructions: systemPrompt,
-      input: userPrompt,
+    const anthropic = new Anthropic({
+      apiKey: anthropicApiKey,
+      timeout: 18_000,
+      maxRetries: 0,
     });
-    const outputText = response.output_text?.trim() ?? "";
+    const response = await anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 8000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+
+    const outputText = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .trim();
 
     if (!outputText) {
-      throw new Error("OpenAI returned an empty response.");
+      throw new Error("Claude returned an empty response.");
     }
     if (!isValidJsonObject(outputText)) {
-      throw new Error("OpenAI returned invalid JSON. Check the model response and try again.");
+      throw new Error("Claude returned invalid JSON.");
     }
 
-    return { outputText, provider: "openai" };
-  } catch (openaiError) {
-    console.error("OpenAI resume-tailoring fallback failed.", openaiError);
+    return { outputText, provider: "claude" };
+  } catch (claudeError) {
+    console.error("Claude resume-tailoring fallback failed.", claudeError);
     throw new Error(
-      `Both AI providers failed. Claude is the primary provider and OpenAI is the fallback. OpenAI error: ${openaiError instanceof Error ? openaiError.message : "Unknown OpenAI error"}`
+      `Both AI providers failed. OpenAI is the primary provider and Claude is the fallback. Claude error: ${claudeError instanceof Error ? claudeError.message : "Unknown Claude error"}`
     );
   }
+}
+
 }
